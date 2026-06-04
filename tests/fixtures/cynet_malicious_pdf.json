@@ -1,0 +1,20 @@
+{
+  "Cynet": {
+    "ClientDbId": 62,
+    "Uniqueness": "HJ/dY4uMaEiqqrbnfPsZLcL1/aI+9rXvHpqt6VvIDnU=",
+    "IncidentName": "Detection Engine - Malicious Binary - Infected File - File Dumped on the Disk",
+    "IncidentDescription": "Hostname: Mac mini di Aurora\r\nHost IP: 192.168.2.66\r\nOS Version: Mac OS X 26.3.1\r\nProcess SHA256: B1EF03497D6823CE6D8BC77D6EF8BDC4A21FF560AD7A613D539C9851BECF2405\r\nMalware ID: TR/VBS.Malware\r\nInfected file SHA256: 553C792B1B8F98D7BCD59267B4D5FF7755CBCE019597DD8EBAD4AFE1A00CAC8D",
+    "IncidentJsonDescription": "{\"Hostname\":\"Mac mini di Aurora\",\"Host Ip\":\"192.168.2.66\",\"Extra Info\":{\"Created File Sha256\":\"553C792B1B8F98D7BCD59267B4D5FF7755CBCE019597DD8EBAD4AFE1A00CAC8D\",\"Sha256\":\"B1EF03497D6823CE6D8BC77D6EF8BDC4A21FF560AD7A613D539C9851BECF2405\",\"Infected file SHA256\":\"553C792B1B8F98D7BCD59267B4D5FF7755CBCE019597DD8EBAD4AFE1A00CAC8D\",\"Malware ID\":\"TR/VBS.Malware\",\"Malware Type\":\"trojan\",\"Infected file\":\"/Volumes/Public/sample.pdf\"},\"Parent Process Details\":{\"Process SHA256\":\"B1EF03497D6823CE6D8BC77D6EF8BDC4A21FF560AD7A613D539C9851BECF2405\",\"Process Path\":\"/Applications/Adobe Illustrator\"},\"Grandparent Process Details\":{\"Process SHA256\":\"23C281B8D463DDA454D05118DB7B860013E7666D38BB8BED9E5430E6216F7B2B\",\"Process Path\":\"/sbin/launchd\"}}",
+    "IncidentRecomendation": "Investigate according to organization policy",
+    "HostId": 91,
+    "HostIp": "192.168.2.66",
+    "HostName": "Mac mini di Aurora",
+    "Sha256Hex": "553C792B1B8F98D7BCD59267B4D5FF7755CBCE019597DD8EBAD4AFE1A00CAC8D",
+    "Path": "/Volumes/Public/sample.pdf",
+    "UserName": "Mac mini di Aurora\\a.dominin",
+    "Severity": 4,
+    "DateIn": "2026-05-29T13:26:24+00:00",
+    "AlertDomain": null,
+    "AlertUrl": null
+  }
+}
