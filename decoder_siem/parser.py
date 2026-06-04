@@ -35,6 +35,8 @@ def get_vendor_block(data: dict[str, Any]) -> tuple[str | None, dict[str, Any] |
         return None, None
     if "Cynet" in data and isinstance(data["Cynet"], dict):
         return "Cynet", data["Cynet"]
+    if "MicrosoftGraph" in data and isinstance(data["MicrosoftGraph"], dict):
+        return "MicrosoftDefender", data["MicrosoftGraph"]
     for key, value in data.items():
         if isinstance(value, dict) and any(
             k in value

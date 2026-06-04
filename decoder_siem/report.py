@@ -60,6 +60,30 @@ def render_markdown(report: IncidentReport) -> str:
             lines.append(f"- **Categoria:** {extra['cat']}")
         lines.append("")
 
+    if report.context.vendor == "MicrosoftDefender":
+        lines.append("## Alert Microsoft Defender")
+        lines.append("")
+        extra = report.context.extra or {}
+        if report.context.event_name:
+            lines.append(f"- **Detector:** {report.context.event_name}")
+        if extra.get("severity_text"):
+            lines.append(f"- **Severità:** {extra['severity_text']}")
+        if extra.get("product_name"):
+            lines.append(f"- **Prodotto:** {extra['product_name']}")
+        if extra.get("incident_id"):
+            lines.append(f"- **Incident ID:** {extra['incident_id']}")
+        if extra.get("status"):
+            lines.append(f"- **Stato:** {extra['status']}")
+        if extra.get("categories"):
+            lines.append(f"- **Categorie:** {', '.join(extra['categories'])}")
+        if extra.get("mitre_techniques"):
+            lines.append(
+                f"- **MITRE ATT&CK:** {', '.join(extra['mitre_techniques'])}"
+            )
+        if report.context.log_description:
+            lines.append(f"- **Descrizione:** {report.context.log_description}")
+        lines.append("")
+
     internal = report.internal_ips
     if internal:
         lines.append("## Rete interna (non inviata a VirusTotal)")

@@ -7,6 +7,7 @@ from decoder_siem.extractors import (
     CynetExtractor,
     FortiGateExtractor,
     GenericExtractor,
+    MicrosoftDefenderExtractor,
     merge_artifacts,
 )
 from decoder_siem.models import (
@@ -31,6 +32,24 @@ def _context_from_cynet(ctx_data: dict) -> IncidentContext:
         malware_id=ctx_data.get("malware_id"),
         malware_type=ctx_data.get("malware_type"),
         date_in=ctx_data.get("date_in"),
+    )
+
+
+def _context_from_defender(ctx_data: dict) -> IncidentContext:
+    data = dict(ctx_data)
+    extra = data.pop("extra", {}) or {}
+    return IncidentContext(
+        vendor="MicrosoftDefender",
+        log_format=data.get("log_format", "json"),
+        incident_name=data.get("incident_name"),
+        event_name=data.get("event_name"),
+        host_name=data.get("host_name"),
+        host_ip=data.get("host_ip"),
+        severity=data.get("severity"),
+        log_description=data.get("log_description"),
+        message=data.get("message"),
+        date_in=data.get("date_in"),
+        extra=extra,
     )
 
 
@@ -70,6 +89,12 @@ def extract_artifacts_from_file(path: Path) -> tuple[list, IncidentContext, dict
         artifacts = merge_artifacts(fg.extract(doc.vendor_block), artifacts)
         ctx_data = fg.extract_context(doc.vendor_block)
         context = _context_from_fortigate(ctx_data)
+
+    elif doc.vendor == "MicrosoftDefender" and doc.vendor_block:
+        md = MicrosoftDefenderExtractor()
+        artifacts = merge_artifacts(md.extract(doc.vendor_block), artifacts)
+        ctx_data = md.extract_context(doc.vendor_block)
+        context = _context_from_defender(ctx_data)
 
     return artifacts, context, doc.raw_event
 

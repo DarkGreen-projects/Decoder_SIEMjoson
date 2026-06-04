@@ -33,6 +33,9 @@ python -m decoder_siem extract-only ./tests/fixtures/cynet_malicious_pdf.json -o
 
 # FortiGate CEF (syslog)
 python -m decoder_siem extract-only ./tests/fixtures/fortigate_shutdown.cef -o ./out/fortigate_report.json -m ./out/fortigate_report.md
+
+# Microsoft Defender (Graph API alert)
+python -m decoder_siem extract-only ./tests/fixtures/defender_ldap_recon.json -o ./out/defender_report.json
 ```
 
 ### Estrazione + VirusTotal
@@ -61,6 +64,7 @@ decoder-siem analyze ./alerts/ --recursive
 | Formato | Estensioni | Vendor rilevato |
 |---------|------------|-----------------|
 | Cynet / SIEM JSON | `.json` | `Cynet` |
+| Microsoft Defender / Graph | `.json` (chiave `MicrosoftGraph`) | `MicrosoftDefender` |
 | FortiGate syslog+CEF | `.cef`, `.log`, `.txt` | `FortiGate` |
 | CEF in wrapper JSON | `.json` (campo `message`, `raw`, `log`) | `FortiGate` |
 
@@ -77,6 +81,13 @@ Dal JSON Cynet (e in generale da qualsiasi JSON annidato):
 - **Domini** e **URL** se presenti (`AlertDomain`, `AlertUrl`, regex)
 
 Gli IP RFC1918 (es. `192.168.x.x`) **non** vengono inviati a VirusTotal; compaiono nel report nella sezione *Rete interna*.
+
+Dal JSON Microsoft Defender (`MicrosoftGraph`):
+
+- **Evidence**: IP (`ipEvidence`, `lastIpAddress`, `lastExternalIpAddress`), device (`deviceDnsName`, `hostName`), URL alert
+- **Contesto**: titolo, detector, MITRE ATT&CK, severità, incident ID
+- **Gruppi AD** target (`securityGroupEvidence.friendlyName`)
+- IP interni (`172.27.x.x`, `10.x.x.x`, `::1`) esclusi da VirusTotal; IP esterni arricchibili
 
 Dal CEF FortiGate:
 
