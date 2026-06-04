@@ -26,6 +26,13 @@ GUI_CSS = """
 .artifacts-panel { line-height: 1.5; }
 .artifacts-panel h4 { margin-top: 0; }
 .summary-panel { min-width: 280px; }
+.footer-copyright {
+  text-align: right;
+  color: #6b6b6b;
+  font-size: 12px;
+  margin-top: 1.5rem;
+  padding-right: 8px;
+}
 """
 
 
@@ -77,7 +84,7 @@ def main() -> None:
         gr.Markdown(
             "# Decoder SIEM\n"
             "Incolla JSON (Cynet, Microsoft Defender) o log CEF/syslog (FortiGate), "
-            "poi premi **Analizza**. VirusTotal è sempre attivo se `VT_API_KEY` è in `.env`."
+            "poi premi **Analizza**."
         )
 
         with gr.Row():
@@ -104,6 +111,11 @@ def main() -> None:
         )
 
         clear_btn = gr.Button("Pulisci")
+
+        gr.HTML(
+            '<div class="footer-copyright">© Darkgreen</div>',
+            elem_classes=["footer-copyright"],
+        )
 
         analyze_btn.click(
             fn=run_analysis,
