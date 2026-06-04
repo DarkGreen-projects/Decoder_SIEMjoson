@@ -39,6 +39,9 @@ GUI_CSS = """
   margin-top: 1.5rem;
   padding-right: 8px;
 }
+.footer-copyright a:hover {
+  text-decoration: underline;
+}
 """
 
 
@@ -134,7 +137,11 @@ def main() -> None:
         clear_btn = gr.Button("Pulisci")
 
         gr.HTML(
-            '<div class="footer-copyright">© Darkgreen</div>',
+            '<div class="footer-copyright">'
+            '© <a href="https://github.com/DarkGreen-projects" '
+            'target="_blank" rel="noopener noreferrer" '
+            'style="color:#6b6b6b; text-decoration:none;">Darkgreen</a>'
+            "</div>",
             elem_classes=["footer-copyright"],
         )
 
