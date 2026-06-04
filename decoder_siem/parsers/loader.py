@@ -7,6 +7,12 @@ from typing import Any, Literal
 
 from decoder_siem.parser import get_vendor_block, parse_nested_json_strings
 from decoder_siem.parsers.cef import is_fortigate_cef, parse_cef_line
+from decoder_siem.parsers.normalize import (
+    looks_like_cef,
+    looks_like_json,
+    normalize_pasted_text,
+    parse_json_lenient,
+)
 
 CEF_WRAPPER_KEYS = ("message", "raw", "log", "event", "cef", "syslog")
 
@@ -79,9 +85,27 @@ def _parse_cef_text(text: str) -> LoadedDocument:
     )
 
 
+def _load_json_document(raw: Any) -> LoadedDocument:
+    cef_string = _extract_cef_from_json(raw)
+    if cef_string:
+        return _parse_cef_text(normalize_pasted_text(cef_string))
+
+    parsed = parse_nested_json_strings(raw)
+    vendor, block = None, None
+    if isinstance(parsed, dict):
+        vendor, block = get_vendor_block(parsed)
+    return LoadedDocument(
+        format="json",
+        vendor=vendor,
+        data=parsed,
+        vendor_block=block,
+        raw_event=raw if isinstance(raw, dict) else None,
+    )
+
+
 def load_text(text: str, *, source_hint: str | None = None) -> LoadedDocument:
     """Load and detect format from raw text (JSON, CEF/syslog, or wrapped CEF in JSON)."""
-    content = text.strip()
+    content = normalize_pasted_text(text)
     if not content:
         raise ValueError("Input vuoto: incolla JSON o un log CEF/syslog")
 
@@ -89,35 +113,38 @@ def load_text(text: str, *, source_hint: str | None = None) -> LoadedDocument:
     if source_hint and "." in source_hint:
         suffix = Path(source_hint).suffix.lower()
 
-    if suffix == ".json" or content.startswith("{") or content.startswith("["):
-        try:
-            raw = json.loads(content)
-            cef_string = _extract_cef_from_json(raw)
-            if cef_string:
-                return _parse_cef_text(cef_string)
+    try_json = (
+        suffix == ".json"
+        or looks_like_json(content)
+        or ("MicrosoftGraph" in content or "Cynet" in content)
+    )
 
-            parsed = parse_nested_json_strings(raw)
-            vendor, block = None, None
-            if isinstance(parsed, dict):
-                vendor, block = get_vendor_block(parsed)
-            return LoadedDocument(
-                format="json",
-                vendor=vendor,
-                data=parsed,
-                vendor_block=block,
-                raw_event=raw if isinstance(raw, dict) else None,
-            )
+    if try_json:
+        try:
+            raw = parse_json_lenient(content)
+            # Doppio encoding: stringa JSON che contiene altro JSON
+            while isinstance(raw, str) and (
+                looks_like_json(raw) or "MicrosoftGraph" in raw or "Cynet" in raw
+            ):
+                raw = parse_json_lenient(raw)
+            return _load_json_document(raw)
+        except ValueError:
+            if suffix == ".json":
+                raise
+            # Fall through to CEF
         except json.JSONDecodeError as exc:
             if suffix == ".json":
                 raise ValueError(f"JSON non valido: {exc}") from exc
-            # Fall through to CEF
 
-    if "CEF:" in content:
+    if looks_like_cef(content):
         return _parse_cef_text(content)
 
     label = source_hint or "input"
     raise ValueError(
-        f"Formato non riconosciuto in {label}: atteso JSON o riga syslog/CEF"
+        f"Formato non riconosciuto in {label}. "
+        "Incolla un JSON che inizia con { (es. {\"MicrosoftGraph\":...}) "
+        "oppure una riga syslog che contiene CEF:. "
+        "Evita testo prima/dopo il JSON e virgolette esterne."
     )
 
 
