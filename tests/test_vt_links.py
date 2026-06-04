@@ -60,5 +60,10 @@ def test_rows_include_link_column():
     text = Path(__file__).parent / "fixtures" / "defender_ldap_recon.json"
     report = build_report_from_text(text.read_text(encoding="utf-8"), enrich=False)
     rows = report_to_rows(report)
-    assert len(TABLE_HEADERS) == 7
-    assert any(row[-1].startswith("https://") for row in rows if row[-1] != "-")
+    assert len(TABLE_HEADERS) == 11
+    vt_link_idx = TABLE_HEADERS.index("Link VT")
+    assert any(
+        row[vt_link_idx].startswith("https://")
+        for row in rows
+        if row[vt_link_idx] != "-"
+    )

@@ -3,11 +3,15 @@ from __future__ import annotations
 import html
 from typing import Literal
 
+from decoder_siem.enrichers.abuseipdb import AbuseIPDBEnricher
+from decoder_siem.enrichers.otx import OTXEnricher
+from decoder_siem.enrichers.urlhaus import URLhausEnricher
 from decoder_siem.models import (
     Artifact,
     ArtifactReport,
     ArtifactScope,
     ArtifactType,
+    EnrichmentResult,
     EnrichmentStatus,
     IncidentContext,
     IncidentReport,
@@ -21,6 +25,10 @@ TABLE_HEADERS = [
     "VT Stato",
     "VT Riepilogo",
     "Link VT",
+    "AbuseIPDB",
+    "OTX",
+    "URLhaus",
+    "Link OSINT",
 ]
 
 COLOR_BENIGN = "#2e7d32"
@@ -43,18 +51,32 @@ ENRICHABLE_TYPES = LINKABLE_TYPES
 Verdict = Literal["malicious", "benign", "unknown"]
 
 
+def enrichment_by_name(
+    ar: ArtifactReport, name: str
+) -> EnrichmentResult | None:
+    for enr in ar.enrichments:
+        if enr.enricher == name:
+            return enr
+    return None
+
+
+def _vt_enrichment(ar: ArtifactReport) -> EnrichmentResult | None:
+    return enrichment_by_name(ar, "virustotal")
+
+
 def _vt_stats(ar: ArtifactReport) -> dict:
-    if not ar.enrichments:
+    enr = _vt_enrichment(ar)
+    if not enr or not enr.data:
         return {}
-    data = ar.enrichments[0].data or {}
-    return data.get("last_analysis_stats") or {}
+    return enr.data.get("last_analysis_stats") or {}
 
 
 def vt_permalink(ar: ArtifactReport) -> str | None:
     """URL pagina VirusTotal per hash, URL, dominio o IP pubblico."""
     art = ar.artifact
-    if ar.enrichments:
-        link = ar.enrichments[0].data.get("permalink")
+    enr = _vt_enrichment(ar)
+    if enr and enr.data:
+        link = enr.data.get("permalink")
         if link:
             return str(link)
 
@@ -79,6 +101,179 @@ def vt_permalink(ar: ArtifactReport) -> str | None:
     return None
 
 
+def _osint_links(ar: ArtifactReport) -> list[str]:
+    links: list[str] = []
+    for name in ("abuseipdb", "otx", "urlhaus"):
+        enr = enrichment_by_name(ar, name)
+        if enr and enr.status == EnrichmentStatus.SUCCESS and enr.data:
+            link = enr.data.get("permalink") or enr.data.get("urlhaus_reference")
+            if link and link not in links:
+                links.append(str(link))
+    return links
+
+
+def _enrichment_is_malicious(enr: EnrichmentResult) -> bool:
+    if enr.status != EnrichmentStatus.SUCCESS or not enr.data:
+        return False
+    data = enr.data
+    if enr.enricher == "virustotal":
+        stats = data.get("last_analysis_stats") or {}
+        return stats.get("malicious", 0) > 0 or stats.get("suspicious", 0) > 0
+    if enr.enricher == "abuseipdb":
+        return AbuseIPDBEnricher.is_malicious(data)
+    if enr.enricher == "otx":
+        return OTXEnricher.is_malicious(data)
+    if enr.enricher == "urlhaus":
+        return URLhausEnricher.is_malicious(data)
+    return False
+
+
+def _enrichment_is_clean_success(enr: EnrichmentResult) -> bool:
+    if enr.status != EnrichmentStatus.SUCCESS:
+        return False
+    return not _enrichment_is_malicious(enr)
+
+
+def classify_artifact(ar: ArtifactReport) -> Verdict:
+    art = ar.artifact
+
+    if art.scope == ArtifactScope.INTERNAL:
+        return "benign"
+
+    if not ar.enrichments:
+        if art.type not in ENRICHABLE_TYPES:
+            return "benign"
+        return "unknown"
+
+    for enr in ar.enrichments:
+        if _enrichment_is_malicious(enr):
+            return "malicious"
+
+    has_success = any(
+        _enrichment_is_clean_success(enr) for enr in ar.enrichments
+    )
+    has_skipped_or_not_found = any(
+        enr.status in (EnrichmentStatus.SKIPPED, EnrichmentStatus.NOT_FOUND)
+        for enr in ar.enrichments
+    )
+
+    if has_success:
+        return "benign"
+    if has_skipped_or_not_found and art.type in ENRICHABLE_TYPES:
+        return "benign"
+    if art.type not in ENRICHABLE_TYPES:
+        return "benign"
+    return "unknown"
+
+
+def verdict_color(verdict: Verdict) -> str:
+    return COLOR_MALICIOUS if verdict == "malicious" else COLOR_BENIGN
+
+
+def _format_enrichment_snippet(enr: EnrichmentResult) -> str | None:
+    if enr.status == EnrichmentStatus.SUCCESS and enr.data:
+        data = enr.data
+        if enr.enricher == "virustotal":
+            ratio = data.get("detection_ratio")
+            return f"VT {ratio}" if ratio else (enr.summary or "VT ok")
+        if enr.enricher == "abuseipdb":
+            score = data.get("abuse_confidence_score")
+            return f"AbuseIPDB {score}%"
+        if enr.enricher == "otx":
+            pulses = data.get("pulse_count", 0)
+            return f"OTX {pulses} pulse"
+        if enr.enricher == "urlhaus":
+            status = data.get("url_status")
+            if status:
+                return f"URLhaus {status}"
+            url_count = data.get("url_count")
+            if url_count:
+                return f"URLhaus {url_count} URL"
+            return enr.summary or "URLhaus ok"
+    if enr.status == EnrichmentStatus.NOT_FOUND:
+        labels = {
+            "virustotal": "assente su VT",
+            "abuseipdb": "assente su AbuseIPDB",
+            "otx": "assente su OTX",
+            "urlhaus": "assente su URLhaus",
+        }
+        return labels.get(enr.enricher, enr.summary)
+    if enr.status == EnrichmentStatus.SKIPPED:
+        return enr.summary
+    if enr.status == EnrichmentStatus.ERROR:
+        return enr.summary or f"errore {enr.enricher}"
+    return None
+
+
+def _artifact_note(ar: ArtifactReport) -> str:
+    art = ar.artifact
+    if art.scope == ArtifactScope.INTERNAL:
+        return "interno"
+
+    if not ar.enrichments:
+        return "non verificato"
+
+    parts: list[str] = []
+    for name in ("virustotal", "abuseipdb", "otx", "urlhaus"):
+        enr = enrichment_by_name(ar, name)
+        if enr:
+            snippet = _format_enrichment_snippet(enr)
+            if snippet:
+                parts.append(snippet)
+
+    if parts:
+        return " | ".join(parts)
+    return "non verificato"
+
+
+def _abuseipdb_cell(ar: ArtifactReport) -> str:
+    enr = enrichment_by_name(ar, "abuseipdb")
+    if not enr:
+        return "-"
+    if enr.status == EnrichmentStatus.SUCCESS and enr.data:
+        score = enr.data.get("abuse_confidence_score")
+        return f"{score}%" if score is not None else (enr.summary or "-")
+    if enr.status == EnrichmentStatus.NOT_FOUND:
+        return "non presente"
+    return enr.summary or enr.status.value
+
+
+def _otx_cell(ar: ArtifactReport) -> str:
+    enr = enrichment_by_name(ar, "otx")
+    if not enr:
+        return "-"
+    if enr.status == EnrichmentStatus.SUCCESS and enr.data:
+        pulses = enr.data.get("pulse_count")
+        return str(pulses) if pulses is not None else (enr.summary or "-")
+    if enr.status == EnrichmentStatus.NOT_FOUND:
+        return "non presente"
+    return enr.summary or enr.status.value
+
+
+def _urlhaus_cell(ar: ArtifactReport) -> str:
+    enr = enrichment_by_name(ar, "urlhaus")
+    if not enr:
+        return "-"
+    if enr.status == EnrichmentStatus.SUCCESS and enr.data:
+        status = enr.data.get("url_status")
+        if status:
+            return str(status)
+        url_count = enr.data.get("url_count")
+        if url_count:
+            return f"{url_count} URL"
+        return "presente"
+    if enr.status == EnrichmentStatus.NOT_FOUND:
+        return "non presente"
+    return enr.summary or enr.status.value
+
+
+def _osint_link_cell(ar: ArtifactReport) -> str:
+    links = _osint_links(ar)
+    if not links:
+        return "-"
+    return links[0] if len(links) == 1 else "; ".join(links)
+
+
 def _value_supports_vt_link(art: Artifact) -> bool:
     if art.type in HASH_TYPES or art.type == ArtifactType.URL:
         return True
@@ -100,57 +295,6 @@ def _format_value_html(ar: ArtifactReport) -> str:
             f'rel="noopener noreferrer">{value_esc}</a>'
         )
     return value_esc
-
-
-def classify_artifact(ar: ArtifactReport) -> Verdict:
-    art = ar.artifact
-
-    if not ar.enrichments:
-        if art.type not in ENRICHABLE_TYPES or art.scope == ArtifactScope.INTERNAL:
-            return "benign"
-        return "unknown"
-
-    enr = ar.enrichments[0]
-
-    if enr.status == EnrichmentStatus.SUCCESS:
-        stats = _vt_stats(ar)
-        if stats.get("malicious", 0) > 0 or stats.get("suspicious", 0) > 0:
-            return "malicious"
-        return "benign"
-
-    if enr.status in (EnrichmentStatus.SKIPPED, EnrichmentStatus.NOT_FOUND):
-        return "benign"
-
-    return "unknown"
-
-
-def verdict_color(verdict: Verdict) -> str:
-    return COLOR_MALICIOUS if verdict == "malicious" else COLOR_BENIGN
-
-
-def _artifact_note(ar: ArtifactReport) -> str:
-    art = ar.artifact
-    if art.scope == ArtifactScope.INTERNAL:
-        return "interno"
-
-    if not ar.enrichments:
-        return "non verificato"
-
-    enr = ar.enrichments[0]
-    if enr.status == EnrichmentStatus.SKIPPED:
-        return enr.summary or "saltato"
-    if enr.status == EnrichmentStatus.NOT_FOUND:
-        return "assente su VT"
-    if enr.status == EnrichmentStatus.ERROR:
-        return enr.summary or "errore VT"
-    if enr.status == EnrichmentStatus.SUCCESS:
-        data = enr.data or {}
-        ratio = data.get("detection_ratio")
-        if ratio:
-            return f"VT {ratio}"
-        return enr.summary or "VT ok"
-
-    return "non verificato"
 
 
 def report_to_colored_html(report: IncidentReport) -> str:
@@ -179,7 +323,7 @@ def report_to_colored_html(report: IncidentReport) -> str:
     legend = (
         f'<p style="font-size:0.85em; color:#555;">'
         f'<span style="color:{COLOR_BENIGN};">■</span> non malevolo &nbsp; '
-        f'<span style="color:{COLOR_MALICIOUS};">■</span> malevolo (VT) &nbsp; '
+        f'<span style="color:{COLOR_MALICIOUS};">■</span> malevolo (OSINT aggregato) &nbsp; '
         f"hash/URL cliccabili → VirusTotal"
         f"</p>"
     )
@@ -196,10 +340,10 @@ def report_to_rows(report: IncidentReport) -> list[list[str]]:
     rows: list[list[str]] = []
     for ar in report.artifacts:
         art = ar.artifact
-        if ar.enrichments:
-            enr = ar.enrichments[0]
-            vt_status = enr.status.value
-            vt_summary = enr.summary or "-"
+        vt_enr = _vt_enrichment(ar)
+        if vt_enr:
+            vt_status = vt_enr.status.value
+            vt_summary = vt_enr.summary or "-"
         else:
             vt_status = "-"
             vt_summary = "-"
@@ -219,6 +363,10 @@ def report_to_rows(report: IncidentReport) -> list[list[str]]:
                 vt_status,
                 vt_summary,
                 link_cell,
+                _abuseipdb_cell(ar),
+                _otx_cell(ar),
+                _urlhaus_cell(ar),
+                _osint_link_cell(ar),
             ]
         )
     return rows

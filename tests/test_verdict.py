@@ -10,6 +10,7 @@ from decoder_siem.table_export import (
     COLOR_BENIGN,
     COLOR_MALICIOUS,
     classify_artifact,
+    enrichment_by_name,
     report_to_colored_html,
     verdict_color,
 )
@@ -20,7 +21,7 @@ def _ar(
     value: str,
     *,
     scope: ArtifactScope = ArtifactScope.PUBLIC,
-    enrichment: EnrichmentResult | None = None,
+    enrichments: list[EnrichmentResult] | None = None,
 ) -> ArtifactReport:
     art = Artifact(
         type=art_type,
@@ -29,19 +30,38 @@ def _ar(
         scope=scope,
         provenance=["test"],
     )
-    enrichments = [enrichment] if enrichment else []
-    return ArtifactReport(artifact=art, enrichments=enrichments)
+    return ArtifactReport(artifact=art, enrichments=enrichments or [])
 
 
-def test_classify_malicious():
+def test_classify_malicious_vt():
     enr = EnrichmentResult(
         enricher="virustotal",
         status=EnrichmentStatus.SUCCESS,
         data={"last_analysis_stats": {"malicious": 5, "harmless": 60, "undetected": 5}},
     )
-    ar = _ar(ArtifactType.IP, "8.8.8.8", enrichment=enr)
+    ar = _ar(ArtifactType.IP, "8.8.8.8", enrichments=[enr])
     assert classify_artifact(ar) == "malicious"
     assert verdict_color("malicious") == COLOR_MALICIOUS
+
+
+def test_classify_malicious_abuseipdb_when_vt_clean():
+    ar = _ar(
+        ArtifactType.IP,
+        "1.2.3.4",
+        enrichments=[
+            EnrichmentResult(
+                enricher="virustotal",
+                status=EnrichmentStatus.SUCCESS,
+                data={"last_analysis_stats": {"malicious": 0, "harmless": 70}},
+            ),
+            EnrichmentResult(
+                enricher="abuseipdb",
+                status=EnrichmentStatus.SUCCESS,
+                data={"abuse_confidence_score": 80, "total_reports": 5},
+            ),
+        ],
+    )
+    assert classify_artifact(ar) == "malicious"
 
 
 def test_classify_suspicious_as_malicious():
@@ -50,7 +70,7 @@ def test_classify_suspicious_as_malicious():
         status=EnrichmentStatus.SUCCESS,
         data={"last_analysis_stats": {"malicious": 0, "suspicious": 2, "harmless": 70}},
     )
-    ar = _ar(ArtifactType.DOMAIN, "evil.example", enrichment=enr)
+    ar = _ar(ArtifactType.DOMAIN, "evil.example", enrichments=[enr])
     assert classify_artifact(ar) == "malicious"
 
 
@@ -60,7 +80,7 @@ def test_classify_benign_vt_clean():
         status=EnrichmentStatus.SUCCESS,
         data={"last_analysis_stats": {"malicious": 0, "suspicious": 0, "harmless": 70}},
     )
-    ar = _ar(ArtifactType.IP, "93.184.216.34", enrichment=enr)
+    ar = _ar(ArtifactType.IP, "93.184.216.34", enrichments=[enr])
     assert classify_artifact(ar) == "benign"
     assert verdict_color("benign") == COLOR_BENIGN
 
@@ -75,7 +95,7 @@ def test_classify_internal_ip_benign():
         ArtifactType.IP,
         "192.168.1.1",
         scope=ArtifactScope.INTERNAL,
-        enrichment=enr,
+        enrichments=[enr],
     )
     assert classify_artifact(ar) == "benign"
 
@@ -83,6 +103,19 @@ def test_classify_internal_ip_benign():
 def test_classify_unknown_no_enrichment():
     ar = _ar(ArtifactType.IP, "1.2.3.4")
     assert classify_artifact(ar) == "unknown"
+
+
+def test_enrichment_by_name():
+    ar = _ar(
+        ArtifactType.IP,
+        "1.2.3.4",
+        enrichments=[
+            EnrichmentResult(enricher="otx", status=EnrichmentStatus.NOT_FOUND),
+            EnrichmentResult(enricher="virustotal", status=EnrichmentStatus.SKIPPED),
+        ],
+    )
+    assert enrichment_by_name(ar, "otx") is not None
+    assert enrichment_by_name(ar, "abuseipdb") is None
 
 
 def test_colored_html_contains_colors():
@@ -93,6 +126,7 @@ def test_colored_html_contains_colors():
     report = build_report_from_text(text.read_text(encoding="utf-8"), enrich=False)
     html_out = report_to_colored_html(report)
     assert "Elementi analizzati" in html_out
+    assert "OSINT aggregato" in html_out
     assert COLOR_BENIGN in html_out or COLOR_MALICIOUS in html_out
 
 

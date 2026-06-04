@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import os
-
 from dotenv import load_dotenv
 
 from decoder_siem.alert_guidance import alert_guidance_to_markdown
+from decoder_siem.enrichment_config import EnrichmentConfig
 from decoder_siem.pipeline import build_report_from_text
 from decoder_siem.table_export import (
     TABLE_HEADERS,
@@ -58,19 +57,26 @@ def run_analysis(text: str) -> tuple[str, str, list[list[str]], str, str]:
             EMPTY_ALERT_GUIDANCE,
         )
 
-    api_key = os.getenv("VT_API_KEY")
-    error_msg = EMPTY_ERROR
-    if not api_key:
-        error_msg = (
-            "VT_API_KEY non configurata: crea il file .env con la chiave VirusTotal. "
-            "L'estrazione verrà eseguita ma gli IOC non saranno verificati da VT."
+    config = EnrichmentConfig.from_env()
+    warnings: list[str] = []
+    if not config.vt_api_key:
+        warnings.append("VT_API_KEY non configurata (VirusTotal disattivato).")
+    if not config.abuseipdb_api_key:
+        warnings.append("ABUSEIPDB_API_KEY non configurata (AbuseIPDB disattivato).")
+    if not config.otx_api_key:
+        warnings.append("OTX_API_KEY non configurata (AlienVault OTX disattivato).")
+    if not config.urlhaus_auth_key:
+        warnings.append(
+            "URLHAUS_AUTH_KEY non configurata (URLhaus disattivato; "
+            "chiave gratuita su https://auth.abuse.ch/)."
         )
+    error_msg = " ".join(warnings) if warnings else EMPTY_ERROR
 
     try:
         report = build_report_from_text(
             text,
             enrich=True,
-            api_key=api_key,
+            config=config,
         )
     except ValueError as exc:
         return EMPTY_MARKDOWN, EMPTY_HTML, [], str(exc), EMPTY_ALERT_GUIDANCE
@@ -128,7 +134,7 @@ def main() -> None:
         results_table = gr.Dataframe(
             headers=TABLE_HEADERS,
             datatype=["str"] * len(TABLE_HEADERS),
-            column_widths=["8%", "22%", "8%", "18%", "10%", "18%", "16%"],
+            column_widths=["6%"] * len(TABLE_HEADERS),
             interactive=False,
             wrap=True,
         )

@@ -8,6 +8,7 @@ import typer
 from dotenv import load_dotenv
 
 from decoder_siem import __version__
+from decoder_siem.enrichment_config import EnrichmentConfig
 from decoder_siem.pipeline import build_report
 from decoder_siem.report import print_summary, write_json_report, write_markdown_report
 
@@ -18,7 +19,7 @@ INPUT_EXTENSIONS = {".json", ".log", ".txt", ".cef"}
 
 app = typer.Typer(
     name="decoder-siem",
-    help="Estrae IOC da JSON/CEF incidenti SIEM e li arricchisce via VirusTotal.",
+    help="Estrae IOC da JSON/CEF incidenti SIEM e li arricchisce via OSINT (VT, AbuseIPDB, OTX, URLhaus).",
     no_args_is_help=True,
 )
 
@@ -93,7 +94,7 @@ def analyze(
         None, "--markdown", "-m", help="File report Markdown"
     ),
     no_enrich: bool = typer.Option(
-        False, "--no-enrich", help="Equivalente a extract-only (senza VirusTotal)"
+        False, "--no-enrich", help="Equivalente a extract-only (senza API OSINT)"
     ),
     recursive: bool = typer.Option(
         False, "--recursive", "-r", help="Cerca file ricorsivamente nelle cartelle"
@@ -107,14 +108,31 @@ def analyze(
         help="Richieste VirusTotal per minuto",
     ),
 ) -> None:
-    """Estrae IOC e arricchisce via VirusTotal (se API key presente)."""
-    api_key = os.getenv("VT_API_KEY")
-    if not no_enrich and not api_key:
+    """Estrae IOC e arricchisce via fonti OSINT configurate in .env."""
+    config = EnrichmentConfig.from_env()
+    if requests_per_minute != config.vt_requests_per_minute:
+        config = EnrichmentConfig(
+            vt_api_key=config.vt_api_key,
+            abuseipdb_api_key=config.abuseipdb_api_key,
+            otx_api_key=config.otx_api_key,
+            urlhaus_auth_key=config.urlhaus_auth_key,
+            vt_requests_per_minute=requests_per_minute,
+            osint_requests_per_minute=config.osint_requests_per_minute,
+            abuseipdb_max_age_days=config.abuseipdb_max_age_days,
+        )
+
+    if not no_enrich and not config.has_any_enricher():
         typer.echo(
-            "Avviso: VT_API_KEY non impostata. Eseguo solo estrazione.",
+            "Avviso: nessuna chiave OSINT in .env (VT, AbuseIPDB, OTX, URLhaus). "
+            "Eseguo solo estrazione.",
             err=True,
         )
         no_enrich = True
+    elif not no_enrich and not config.vt_api_key:
+        typer.echo(
+            "Avviso: VT_API_KEY non impostata; arricchimento senza VirusTotal.",
+            err=True,
+        )
 
     paths = _collect_input_paths(input_path, recursive)
     for p in paths:
@@ -122,8 +140,7 @@ def analyze(
         report = build_report(
             p,
             enrich=not no_enrich,
-            api_key=api_key,
-            requests_per_minute=requests_per_minute,
+            config=config,
             cache_dir=cache_dir,
         )
         write_json_report(report, out)

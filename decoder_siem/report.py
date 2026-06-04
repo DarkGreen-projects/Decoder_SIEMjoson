@@ -117,7 +117,7 @@ def render_markdown(report: IncidentReport) -> str:
             for enr in ar.enrichments:
                 status = enr.status.value
                 summary = enr.summary or ""
-                lines.append(f"  - VT [{status}]: {summary}")
+                lines.append(f"  - {enr.enricher} [{status}]: {summary}")
                 if enr.data.get("permalink"):
                     lines.append(f"    - Link: {enr.data['permalink']}")
                 if enr.data.get("last_analysis_stats"):

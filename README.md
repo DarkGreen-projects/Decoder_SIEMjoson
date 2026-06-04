@@ -1,11 +1,11 @@
 # Decoder SIEM JSON
 
-Strumento CLI in Python per analizzare incidenti SIEM in formato **JSON** (es. **Cynet**) e log **CEF/syslog** (es. **FortiGate**): estrae IOC e metadati, con arricchimento opzionale tramite **VirusTotal API v3**.
+Strumento CLI in Python per analizzare incidenti SIEM in formato **JSON** (es. **Cynet**) e log **CEF/syslog** (es. **FortiGate**): estrae IOC e metadati, con arricchimento opzionale tramite **VirusTotal**, **AbuseIPDB**, **AlienVault OTX** e **URLhaus** (abuse.ch).
 
 ## Requisiti
 
 - Python 3.11+
-- Chiave API VirusTotal (solo per arricchimento; l'estrazione funziona senza)
+- Chiavi API opzionali per l'arricchimento (l'estrazione funziona senza)
 
 ## Installazione
 
@@ -23,8 +23,19 @@ Configura le variabili d'ambiente:
 
 ```bash
 cp .env.example .env
-# Modifica .env e imposta VT_API_KEY
+# Modifica .env con le chiavi che vuoi usare (almeno una per l'arricchimento OSINT)
 ```
+
+### Chiavi API (gratuite o free tier)
+
+| Servizio | Variabile `.env` | Registrazione |
+|----------|------------------|---------------|
+| VirusTotal | `VT_API_KEY` | https://www.virustotal.com/gui/my-apikey |
+| AbuseIPDB | `ABUSEIPDB_API_KEY` | https://www.abuseipdb.com/account/api (~1000 check/giorno) |
+| AlienVault OTX | `OTX_API_KEY` | https://otx.alienvault.com → Settings → API Integration |
+| URLhaus | `URLHAUS_AUTH_KEY` | https://auth.abuse.ch/ (Auth-Key gratuita, obbligatoria per le query API) |
+
+Rate limit consigliati: `VT_REQUESTS_PER_MINUTE=4`, `OSINT_REQUESTS_PER_MINUTE=30`.
 
 ## Utilizzo
 
@@ -40,16 +51,16 @@ python -m decoder_siem.gui
 
 Flusso:
 
-1. Configura `VT_API_KEY` nel file `.env` (obbligatorio per l'arricchimento VT in GUI)
+1. Configura nel file `.env` le chiavi OSINT che vuoi usare
 2. Incolla nel campo testo un JSON (Cynet, Microsoft Defender) o un log CEF FortiGate
-3. Premi **Analizza** (pulsante accanto al campo) — VirusTotal è **sempre attivo** se la chiave è presente
+3. Premi **Analizza** — vengono chiamate tutte le fonti per cui è presente la chiave
 4. A sinistra: **Riepilogo incidente**; a destra: **Elementi analizzati** con colori:
    - Verde (`#2e7d32`): elementi non potenzialmente malevoli
-   - Rosso carmino (`#960018`): elementi malevoli secondo VirusTotal
-5. Sotto: tabella dettagliata (provenienza, stato VT)
+   - Rosso carmino (`#960018`): elementi malevoli secondo **OSINT aggregato** (VT, AbuseIPDB, OTX, URLhaus)
+5. Sotto: tabella con colonne VT, AbuseIPDB, OTX, URLhaus e link OSINT
 6. Premi **Pulisci** per svuotare tutto e inserire un nuovo alert
 
-Senza `VT_API_KEY` l'estrazione funziona comunque; gli IOC compaiono in verde come «non verificato».
+Senza chiavi API l'estrazione funziona comunque; gli IOC pubblici compaiono come «non verificato».
 
 ### Solo estrazione (senza API)
 
@@ -64,10 +75,13 @@ python -m decoder_siem extract-only ./tests/fixtures/fortigate_shutdown.cef -o .
 python -m decoder_siem extract-only ./tests/fixtures/defender_ldap_recon.json -o ./out/defender_report.json
 ```
 
-### Estrazione + VirusTotal
+### Estrazione + arricchimento OSINT
 
 ```bash
 export VT_API_KEY="your_key"
+export ABUSEIPDB_API_KEY="your_key"
+export OTX_API_KEY="your_key"
+export URLHAUS_AUTH_KEY="your_key"
 decoder-siem analyze ./incident.json -o ./out/report.json --markdown ./out/report.md
 ```
 
@@ -81,9 +95,9 @@ decoder-siem analyze ./alerts/ --recursive
 
 | Opzione | Descrizione |
 |---------|-------------|
-| `--no-enrich` | Salta VirusTotal |
-| `--rpm 4` | Richieste/minuto (rispetta quota free tier) |
-| `--cache-dir ./.cache` | Cache locale risposte VT |
+| `--no-enrich` | Salta tutte le API OSINT |
+| `--rpm 4` | Richieste/minuto VirusTotal (quota free tier) |
+| `--cache-dir ./.cache` | Cache locale risposte enricher |
 
 ## Formati supportati
 
@@ -136,6 +150,13 @@ pytest -q
 
 I JSON incidenti possono contenere path, nomi host e utenti reali. Non committare file sensibili; usa `.env` solo in locale (già in `.gitignore`).
 
-## Estensioni future
+## Arricchimento OSINT
 
-Architettura a plugin per enricher aggiuntivi (AbuseIPDB, OTX, ecc.) e altri vendor SIEM oltre Cynet e FortiGate.
+Per ogni IOC pubblico (IP, hash, dominio, URL) la pipeline interroga, se configurato:
+
+1. **URLhaus** — URL/host/hash malevoli (feed abuse.ch)
+2. **AbuseIPDB** — reputation IP (score e segnalazioni)
+3. **OTX** — pulse e contesto threat intel
+4. **VirusTotal** — detection ratio e permalink
+
+Il verdetto in GUI e tabella è **aggregato**: basta una fonte che segnali minaccia per colorare l'IOC in rosso carmino.

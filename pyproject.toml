@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "decoder-siem"
 version = "0.1.0"
-description = "Estrae IOC da JSON incidenti SIEM (Cynet) e li arricchisce via VirusTotal"
+description = "Estrae IOC da incidenti SIEM e li arricchisce via VT, AbuseIPDB, OTX e URLhaus"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

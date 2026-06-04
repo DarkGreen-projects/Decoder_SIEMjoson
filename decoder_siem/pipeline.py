@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from decoder_siem.enrichment_config import EnrichmentConfig
+from decoder_siem.enrichers.abuseipdb import AbuseIPDBEnricher
+from decoder_siem.enrichers.otx import OTXEnricher
+from decoder_siem.enrichers.urlhaus import URLhausEnricher
 from decoder_siem.enrichers.virustotal import VirusTotalEnricher
+
+if TYPE_CHECKING:
+    from decoder_siem.enrichers.base import Enricher
 from decoder_siem.extractors import (
     CynetExtractor,
     FortiGateExtractor,
@@ -11,7 +19,10 @@ from decoder_siem.extractors import (
     merge_artifacts,
 )
 from decoder_siem.models import (
+    Artifact,
     ArtifactReport,
+    ArtifactScope,
+    ArtifactType,
     EnrichmentResult,
     EnrichmentStatus,
     IncidentContext,
@@ -110,55 +121,149 @@ def extract_artifacts_from_file(path: Path) -> tuple[list, IncidentContext, dict
     return _extract_from_document(doc)
 
 
+def _build_enricher_chain(
+    config: EnrichmentConfig,
+    cache_dir: Path | None,
+) -> list[Enricher]:
+    rpm = config.osint_requests_per_minute
+    chain: list[Enricher] = []
+
+    if config.urlhaus_auth_key:
+        chain.append(
+            URLhausEnricher(
+                config.urlhaus_auth_key,
+                requests_per_minute=rpm,
+                cache_dir=cache_dir,
+            )
+        )
+    if config.abuseipdb_api_key:
+        chain.append(
+            AbuseIPDBEnricher(
+                config.abuseipdb_api_key,
+                max_age_in_days=config.abuseipdb_max_age_days,
+                requests_per_minute=rpm,
+                cache_dir=cache_dir,
+            )
+        )
+    if config.otx_api_key:
+        chain.append(
+            OTXEnricher(
+                config.otx_api_key,
+                requests_per_minute=rpm,
+                cache_dir=cache_dir,
+            )
+        )
+    if config.vt_api_key:
+        chain.append(
+            VirusTotalEnricher(
+                config.vt_api_key,
+                requests_per_minute=config.vt_requests_per_minute,
+                cache_dir=cache_dir,
+            )
+        )
+    return chain
+
+
+def _skipped_result(enricher: str, summary: str) -> EnrichmentResult:
+    return EnrichmentResult(
+        enricher=enricher,
+        status=EnrichmentStatus.SKIPPED,
+        summary=summary,
+    )
+
+
 def _apply_enrichment(
     report: IncidentReport,
     *,
     enrich: bool,
-    api_key: str | None,
-    requests_per_minute: int,
-    cache_dir: Path | None,
+    config: EnrichmentConfig | None = None,
+    api_key: str | None = None,
+    requests_per_minute: int | None = None,
+    cache_dir: Path | None = None,
 ) -> IncidentReport:
     if not enrich:
         return report
 
-    if not api_key:
-        for ar in report.enrichable_artifacts:
-            ar.enrichments.append(
-                EnrichmentResult(
-                    enricher="virustotal",
-                    status=EnrichmentStatus.SKIPPED,
-                    summary="VT_API_KEY non configurata",
-                )
+    if config is None:
+        config = EnrichmentConfig.from_env()
+        if api_key is not None:
+            config = EnrichmentConfig(
+                vt_api_key=api_key,
+                abuseipdb_api_key=config.abuseipdb_api_key,
+                otx_api_key=config.otx_api_key,
+                urlhaus_auth_key=config.urlhaus_auth_key,
+                vt_requests_per_minute=(
+                    requests_per_minute
+                    if requests_per_minute is not None
+                    else config.vt_requests_per_minute
+                ),
+                osint_requests_per_minute=config.osint_requests_per_minute,
+                abuseipdb_max_age_days=config.abuseipdb_max_age_days,
             )
-        return report
+        elif requests_per_minute is not None:
+            config = EnrichmentConfig(
+                vt_api_key=config.vt_api_key,
+                abuseipdb_api_key=config.abuseipdb_api_key,
+                otx_api_key=config.otx_api_key,
+                urlhaus_auth_key=config.urlhaus_auth_key,
+                vt_requests_per_minute=requests_per_minute,
+                osint_requests_per_minute=config.osint_requests_per_minute,
+                abuseipdb_max_age_days=config.abuseipdb_max_age_days,
+            )
 
-    enricher = VirusTotalEnricher(
-        api_key,
-        requests_per_minute=requests_per_minute,
-        cache_dir=cache_dir,
-    )
+    enrichers = _build_enricher_chain(config, cache_dir)
+    vt_in_chain = any(e.name == "virustotal" for e in enrichers)
+
+    closable: list[VirusTotalEnricher] = [
+        e for e in enrichers if isinstance(e, VirusTotalEnricher)
+    ]
     try:
         for ar in report.enrichable_artifacts:
-            if enricher.supports(ar.artifact):
-                ar.enrichments.append(enricher.enrich(ar.artifact))
-        for ar in report.internal_ips:
-            ar.enrichments.append(
-                EnrichmentResult(
-                    enricher="virustotal",
-                    status=EnrichmentStatus.SKIPPED,
-                    summary="IP interno (RFC1918/link-local): correlare nel SIEM locale",
+            for enricher in enrichers:
+                if enricher.supports(ar.artifact):
+                    ar.enrichments.append(enricher.enrich(ar.artifact))
+
+            if not vt_in_chain and _artifact_supports_vt(ar.artifact):
+                ar.enrichments.append(
+                    _skipped_result(
+                        "virustotal",
+                        "VT_API_KEY non configurata",
+                    )
                 )
-            )
+
+        for ar in report.internal_ips:
+            if not vt_in_chain:
+                ar.enrichments.append(
+                    _skipped_result(
+                        "virustotal",
+                        "IP interno (RFC1918/link-local): correlare nel SIEM locale",
+                    )
+                )
     finally:
-        enricher.close()
+        for enricher in closable:
+            enricher.close()
 
     return report
+
+
+def _artifact_supports_vt(artifact: Artifact) -> bool:
+    if artifact.scope == ArtifactScope.INTERNAL:
+        return False
+    return artifact.type in (
+        ArtifactType.IP,
+        ArtifactType.HASH_SHA256,
+        ArtifactType.HASH_SHA1,
+        ArtifactType.HASH_MD5,
+        ArtifactType.DOMAIN,
+        ArtifactType.URL,
+    )
 
 
 def build_report_from_text(
     text: str,
     *,
     enrich: bool = True,
+    config: EnrichmentConfig | None = None,
     api_key: str | None = None,
     requests_per_minute: int = 4,
     cache_dir: Path | None = None,
@@ -175,6 +280,7 @@ def build_report_from_text(
     return _apply_enrichment(
         report,
         enrich=enrich,
+        config=config,
         api_key=api_key,
         requests_per_minute=requests_per_minute,
         cache_dir=cache_dir,
@@ -185,6 +291,7 @@ def build_report(
     path: Path,
     *,
     enrich: bool = True,
+    config: EnrichmentConfig | None = None,
     api_key: str | None = None,
     requests_per_minute: int = 4,
     cache_dir: Path | None = None,
@@ -201,6 +308,7 @@ def build_report(
     return _apply_enrichment(
         report,
         enrich=enrich,
+        config=config,
         api_key=api_key,
         requests_per_minute=requests_per_minute,
         cache_dir=cache_dir,
