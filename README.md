@@ -40,12 +40,16 @@ python -m decoder_siem.gui
 
 Flusso:
 
-1. Incolla nel campo testo un JSON (Cynet, Microsoft Defender) o un log CEF FortiGate
-2. Premi **Analizza** (pulsante accanto al campo)
-3. Leggi il riepilogo e la **tabella dinamica** con tipo, valore, scope, provenienza e stato VirusTotal
-4. Premi **Pulisci** per svuotare tutto e inserire un nuovo alert
+1. Configura `VT_API_KEY` nel file `.env` (obbligatorio per l'arricchimento VT in GUI)
+2. Incolla nel campo testo un JSON (Cynet, Microsoft Defender) o un log CEF FortiGate
+3. Premi **Analizza** (pulsante accanto al campo) — VirusTotal è **sempre attivo** se la chiave è presente
+4. A sinistra: **Riepilogo incidente**; a destra: **Elementi analizzati** con colori:
+   - Verde (`#2e7d32`): elementi non potenzialmente malevoli
+   - Rosso carmino (`#960018`): elementi malevoli secondo VirusTotal
+5. Sotto: tabella dettagliata (provenienza, stato VT)
+6. Premi **Pulisci** per svuotare tutto e inserire un nuovo alert
 
-Opzionale: attiva **Arricchisci VirusTotal** se `VT_API_KEY` è configurata in `.env`.
+Senza `VT_API_KEY` l'estrazione funziona comunque; gli IOC compaiono in verde come «non verificato».
 
 ### Solo estrazione (senza API)
 

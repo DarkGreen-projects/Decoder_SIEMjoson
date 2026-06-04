@@ -158,7 +158,7 @@ def _apply_enrichment(
 def build_report_from_text(
     text: str,
     *,
-    enrich: bool = False,
+    enrich: bool = True,
     api_key: str | None = None,
     requests_per_minute: int = 4,
     cache_dir: Path | None = None,
