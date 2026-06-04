@@ -79,14 +79,19 @@ def _parse_cef_text(text: str) -> LoadedDocument:
     )
 
 
-def load_document(path: Path) -> LoadedDocument:
-    text = _read_text(path)
-    suffix = path.suffix.lower()
+def load_text(text: str, *, source_hint: str | None = None) -> LoadedDocument:
+    """Load and detect format from raw text (JSON, CEF/syslog, or wrapped CEF in JSON)."""
+    content = text.strip()
+    if not content:
+        raise ValueError("Input vuoto: incolla JSON o un log CEF/syslog")
 
-    # Try JSON first for .json or content starting with { or [
-    if suffix == ".json" or text.startswith("{") or text.startswith("["):
+    suffix = ""
+    if source_hint and "." in source_hint:
+        suffix = Path(source_hint).suffix.lower()
+
+    if suffix == ".json" or content.startswith("{") or content.startswith("["):
         try:
-            raw = json.loads(text)
+            raw = json.loads(content)
             cef_string = _extract_cef_from_json(raw)
             if cef_string:
                 return _parse_cef_text(cef_string)
@@ -102,17 +107,22 @@ def load_document(path: Path) -> LoadedDocument:
                 vendor_block=block,
                 raw_event=raw if isinstance(raw, dict) else None,
             )
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
             if suffix == ".json":
-                raise
-            # Fall through to CEF for misnamed files
+                raise ValueError(f"JSON non valido: {exc}") from exc
+            # Fall through to CEF
 
-    if "CEF:" in text:
-        return _parse_cef_text(text)
+    if "CEF:" in content:
+        return _parse_cef_text(content)
 
+    label = source_hint or "input"
     raise ValueError(
-        f"Unrecognized format in {path}: expected JSON or syslog/CEF line"
+        f"Formato non riconosciuto in {label}: atteso JSON o riga syslog/CEF"
     )
+
+
+def load_document(path: Path) -> LoadedDocument:
+    return load_text(_read_text(path), source_hint=str(path))
 
 
 def prepare_incident_data(path: Path) -> tuple[Any, str | None, dict[str, Any] | None]:

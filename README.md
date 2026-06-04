@@ -14,6 +14,9 @@ cd /workspace
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+
+# Con interfaccia grafica (Gradio)
+pip install -e ".[gui]"
 ```
 
 Configura le variabili d'ambiente:
@@ -24,6 +27,25 @@ cp .env.example .env
 ```
 
 ## Utilizzo
+
+### Interfaccia grafica (GUI)
+
+Avvia la GUI locale su `http://127.0.0.1:7860`:
+
+```bash
+pip install -e ".[gui]"
+python -m decoder_siem.gui
+# oppure: decoder-siem-gui
+```
+
+Flusso:
+
+1. Incolla nel campo testo un JSON (Cynet, Microsoft Defender) o un log CEF FortiGate
+2. Premi **Analizza** (pulsante accanto al campo)
+3. Leggi il riepilogo e la **tabella dinamica** con tipo, valore, scope, provenienza e stato VirusTotal
+4. Premi **Pulisci** per svuotare tutto e inserire un nuovo alert
+
+Opzionale: attiva **Arricchisci VirusTotal** se `VT_API_KEY` è configurata in `.env`.
 
 ### Solo estrazione (senza API)
 

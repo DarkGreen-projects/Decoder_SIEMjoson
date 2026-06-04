@@ -18,9 +18,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+gui = ["gradio>=4.0"]
 
 [project.scripts]
 decoder-siem = "decoder_siem.cli:app"
+decoder-siem-gui = "decoder_siem.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

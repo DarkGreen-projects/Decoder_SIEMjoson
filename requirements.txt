@@ -3,3 +3,4 @@ vt-py>=0.18
 python-dotenv>=1.0
 pydantic>=2.0
 pytest>=8.0
+gradio>=4.0

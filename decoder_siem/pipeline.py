@@ -17,7 +17,7 @@ from decoder_siem.models import (
     IncidentContext,
     IncidentReport,
 )
-from decoder_siem.parsers.loader import load_document
+from decoder_siem.parsers.loader import LoadedDocument, load_document, load_text
 
 
 def _context_from_cynet(ctx_data: dict) -> IncidentContext:
@@ -72,8 +72,9 @@ def _context_from_fortigate(ctx_data: dict) -> IncidentContext:
     )
 
 
-def extract_artifacts_from_file(path: Path) -> tuple[list, IncidentContext, dict | None]:
-    doc = load_document(path)
+def _extract_from_document(
+    doc: LoadedDocument,
+) -> tuple[list, IncidentContext, dict | None]:
     generic = GenericExtractor()
     artifacts = generic.extract(doc.data, "root")
 
@@ -99,24 +100,24 @@ def extract_artifacts_from_file(path: Path) -> tuple[list, IncidentContext, dict
     return artifacts, context, doc.raw_event
 
 
-def build_report(
-    path: Path,
+def extract_artifacts_from_text(text: str) -> tuple[list, IncidentContext, dict | None]:
+    doc = load_text(text)
+    return _extract_from_document(doc)
+
+
+def extract_artifacts_from_file(path: Path) -> tuple[list, IncidentContext, dict | None]:
+    doc = load_document(path)
+    return _extract_from_document(doc)
+
+
+def _apply_enrichment(
+    report: IncidentReport,
     *,
-    enrich: bool = True,
-    api_key: str | None = None,
-    requests_per_minute: int = 4,
-    cache_dir: Path | None = None,
+    enrich: bool,
+    api_key: str | None,
+    requests_per_minute: int,
+    cache_dir: Path | None,
 ) -> IncidentReport:
-    artifacts, context, raw_event = extract_artifacts_from_file(path)
-    artifact_reports = [ArtifactReport(artifact=a) for a in artifacts]
-
-    report = IncidentReport(
-        source_file=str(path),
-        context=context,
-        raw_event=raw_event,
-        artifacts=artifact_reports,
-    )
-
     if not enrich:
         return report
 
@@ -152,3 +153,55 @@ def build_report(
         enricher.close()
 
     return report
+
+
+def build_report_from_text(
+    text: str,
+    *,
+    enrich: bool = False,
+    api_key: str | None = None,
+    requests_per_minute: int = 4,
+    cache_dir: Path | None = None,
+) -> IncidentReport:
+    artifacts, context, raw_event = extract_artifacts_from_text(text)
+    artifact_reports = [ArtifactReport(artifact=a) for a in artifacts]
+
+    report = IncidentReport(
+        source_file="(input)",
+        context=context,
+        raw_event=raw_event,
+        artifacts=artifact_reports,
+    )
+    return _apply_enrichment(
+        report,
+        enrich=enrich,
+        api_key=api_key,
+        requests_per_minute=requests_per_minute,
+        cache_dir=cache_dir,
+    )
+
+
+def build_report(
+    path: Path,
+    *,
+    enrich: bool = True,
+    api_key: str | None = None,
+    requests_per_minute: int = 4,
+    cache_dir: Path | None = None,
+) -> IncidentReport:
+    artifacts, context, raw_event = extract_artifacts_from_file(path)
+    artifact_reports = [ArtifactReport(artifact=a) for a in artifacts]
+
+    report = IncidentReport(
+        source_file=str(path),
+        context=context,
+        raw_event=raw_event,
+        artifacts=artifact_reports,
+    )
+    return _apply_enrichment(
+        report,
+        enrich=enrich,
+        api_key=api_key,
+        requests_per_minute=requests_per_minute,
+        cache_dir=cache_dir,
+    )
