@@ -30,6 +30,8 @@ EMPTY_ALERT_GUIDANCE = (
 
 GUI_CSS = """
 .artifacts-panel { line-height: 1.5; }
+.artifacts-panel a { color: inherit; text-decoration: underline; }
+.artifacts-panel a:hover { opacity: 0.85; }
 .artifacts-panel h4 { margin-top: 0; }
 .summary-panel { min-width: 280px; }
 .footer-copyright {
@@ -86,8 +88,6 @@ def run_analysis(text: str) -> tuple[str, str, list[list[str]], str, str]:
         report.context,
         artifact_count=len(report.artifacts),
     )
-    if api_key:
-        summary += "\n\n_VirusTotal: arricchimento attivo._"
     artifacts_html = report_to_colored_html(report)
     guidance = alert_guidance_to_markdown(report.context, report)
 
@@ -128,6 +128,7 @@ def main() -> None:
         results_table = gr.Dataframe(
             headers=TABLE_HEADERS,
             datatype=["str"] * len(TABLE_HEADERS),
+            column_widths=["8%", "22%", "8%", "18%", "10%", "18%", "16%"],
             interactive=False,
             wrap=True,
         )

@@ -4,6 +4,7 @@ import html
 from typing import Literal
 
 from decoder_siem.models import (
+    Artifact,
     ArtifactReport,
     ArtifactScope,
     ArtifactType,
@@ -19,19 +20,25 @@ TABLE_HEADERS = [
     "Provenienza",
     "VT Stato",
     "VT Riepilogo",
+    "Link VT",
 ]
 
 COLOR_BENIGN = "#2e7d32"
 COLOR_MALICIOUS = "#960018"
 
-ENRICHABLE_TYPES = {
-    ArtifactType.IP,
+HASH_TYPES = {
     ArtifactType.HASH_SHA256,
     ArtifactType.HASH_SHA1,
     ArtifactType.HASH_MD5,
-    ArtifactType.DOMAIN,
-    ArtifactType.URL,
 }
+
+LINKABLE_TYPES = HASH_TYPES | {
+    ArtifactType.URL,
+    ArtifactType.DOMAIN,
+    ArtifactType.IP,
+}
+
+ENRICHABLE_TYPES = LINKABLE_TYPES
 
 Verdict = Literal["malicious", "benign", "unknown"]
 
@@ -41,6 +48,58 @@ def _vt_stats(ar: ArtifactReport) -> dict:
         return {}
     data = ar.enrichments[0].data or {}
     return data.get("last_analysis_stats") or {}
+
+
+def vt_permalink(ar: ArtifactReport) -> str | None:
+    """URL pagina VirusTotal per hash, URL, dominio o IP pubblico."""
+    art = ar.artifact
+    if ar.enrichments:
+        link = ar.enrichments[0].data.get("permalink")
+        if link:
+            return str(link)
+
+    if art.type in HASH_TYPES:
+        return f"https://www.virustotal.com/gui/file/{art.normalized_value}"
+
+    if art.type == ArtifactType.URL:
+        try:
+            import vt
+
+            url_id = vt.url_id(art.normalized_value)
+            return f"https://www.virustotal.com/gui/url/{url_id}"
+        except Exception:  # noqa: BLE001
+            return None
+
+    if art.type == ArtifactType.DOMAIN:
+        return f"https://www.virustotal.com/gui/domain/{art.normalized_value}"
+
+    if art.type == ArtifactType.IP and art.scope == ArtifactScope.PUBLIC:
+        return f"https://www.virustotal.com/gui/ip-address/{art.normalized_value}"
+
+    return None
+
+
+def _value_supports_vt_link(art: Artifact) -> bool:
+    if art.type in HASH_TYPES or art.type == ArtifactType.URL:
+        return True
+    if art.type == ArtifactType.DOMAIN:
+        return True
+    if art.type == ArtifactType.IP and art.scope == ArtifactScope.PUBLIC:
+        return True
+    return False
+
+
+def _format_value_html(ar: ArtifactReport) -> str:
+    art = ar.artifact
+    value_esc = html.escape(art.value)
+    link = vt_permalink(ar)
+    if link and _value_supports_vt_link(art):
+        link_esc = html.escape(link)
+        return (
+            f'<a href="{link_esc}" target="_blank" '
+            f'rel="noopener noreferrer">{value_esc}</a>'
+        )
+    return value_esc
 
 
 def classify_artifact(ar: ArtifactReport) -> Verdict:
@@ -109,18 +168,19 @@ def report_to_colored_html(report: IncidentReport) -> str:
         art = ar.artifact
         note = _artifact_note(ar)
         suffix = " (non verificato)" if verdict == "unknown" else ""
-        value_esc = html.escape(art.value)
+        value_html = _format_value_html(ar)
         type_esc = html.escape(art.type.value)
         note_esc = html.escape(note + suffix)
         items.append(
             f'<li style="color:{color}; margin-bottom:0.35em;">'
-            f"<b>{type_esc}</b>: {value_esc} — <span>{note_esc}</span></li>"
+            f"<b>{type_esc}</b>: {value_html} — <span>{note_esc}</span></li>"
         )
 
     legend = (
         f'<p style="font-size:0.85em; color:#555;">'
         f'<span style="color:{COLOR_BENIGN};">■</span> non malevolo &nbsp; '
-        f'<span style="color:{COLOR_MALICIOUS};">■</span> malevolo (VT)'
+        f'<span style="color:{COLOR_MALICIOUS};">■</span> malevolo (VT) &nbsp; '
+        f"hash/URL cliccabili → VirusTotal"
         f"</p>"
     )
     return (
@@ -143,6 +203,13 @@ def report_to_rows(report: IncidentReport) -> list[list[str]]:
         else:
             vt_status = "-"
             vt_summary = "-"
+
+        link = vt_permalink(ar)
+        if link and _value_supports_vt_link(art):
+            link_cell = link
+        else:
+            link_cell = "-"
+
         rows.append(
             [
                 art.type.value,
@@ -151,6 +218,7 @@ def report_to_rows(report: IncidentReport) -> list[list[str]]:
                 "; ".join(art.provenance),
                 vt_status,
                 vt_summary,
+                link_cell,
             ]
         )
     return rows
