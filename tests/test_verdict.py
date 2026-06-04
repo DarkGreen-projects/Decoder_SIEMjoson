@@ -99,6 +99,7 @@ def test_colored_html_contains_colors():
 def test_gui_run_analysis_signature():
     from decoder_siem.gui import run_analysis
 
-    summary, html_out, rows, err = run_analysis("")
+    summary, html_out, rows, err, guidance = run_analysis("")
     assert "Inserisci" in err
     assert rows == []
+    assert "Guida all'alert" in guidance

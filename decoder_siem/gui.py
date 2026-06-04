@@ -4,6 +4,7 @@ import os
 
 from dotenv import load_dotenv
 
+from decoder_siem.alert_guidance import alert_guidance_to_markdown
 from decoder_siem.pipeline import build_report_from_text
 from decoder_siem.table_export import (
     TABLE_HEADERS,
@@ -21,6 +22,11 @@ EMPTY_HTML = (
     "<p><i>I risultati appariranno qui dopo l'analisi.</i></p></div>"
 )
 EMPTY_ERROR = ""
+EMPTY_ALERT_GUIDANCE = (
+    "### Guida all'alert\n\n"
+    "_Dopo l'analisi comparirà una breve spiegazione del tipo di alert "
+    "e su cosa concentrare l'indagine._"
+)
 
 GUI_CSS = """
 .artifacts-panel { line-height: 1.5; }
@@ -36,10 +42,16 @@ GUI_CSS = """
 """
 
 
-def run_analysis(text: str) -> tuple[str, str, list[list[str]], str]:
-    """Restituisce (markdown riepilogo, html IOC, righe tabella, errore)."""
+def run_analysis(text: str) -> tuple[str, str, list[list[str]], str, str]:
+    """Restituisce (riepilogo, html IOC, tabella, errore, guida alert)."""
     if not text or not text.strip():
-        return EMPTY_MARKDOWN, EMPTY_HTML, [], "Inserisci del testo da analizzare."
+        return (
+            EMPTY_MARKDOWN,
+            EMPTY_HTML,
+            [],
+            "Inserisci del testo da analizzare.",
+            EMPTY_ALERT_GUIDANCE,
+        )
 
     api_key = os.getenv("VT_API_KEY")
     error_msg = EMPTY_ERROR
@@ -56,9 +68,15 @@ def run_analysis(text: str) -> tuple[str, str, list[list[str]], str]:
             api_key=api_key,
         )
     except ValueError as exc:
-        return EMPTY_MARKDOWN, EMPTY_HTML, [], str(exc)
+        return EMPTY_MARKDOWN, EMPTY_HTML, [], str(exc), EMPTY_ALERT_GUIDANCE
     except Exception as exc:  # noqa: BLE001
-        return EMPTY_MARKDOWN, EMPTY_HTML, [], f"Errore durante l'analisi: {exc}"
+        return (
+            EMPTY_MARKDOWN,
+            EMPTY_HTML,
+            [],
+            f"Errore durante l'analisi: {exc}",
+            EMPTY_ALERT_GUIDANCE,
+        )
 
     rows = report_to_rows(report)
     summary = context_to_markdown(
@@ -68,13 +86,14 @@ def run_analysis(text: str) -> tuple[str, str, list[list[str]], str]:
     if api_key:
         summary += "\n\n_VirusTotal: arricchimento attivo._"
     artifacts_html = report_to_colored_html(report)
+    guidance = alert_guidance_to_markdown(report.context, report)
 
-    return summary, artifacts_html, rows, error_msg
+    return summary, artifacts_html, rows, error_msg, guidance
 
 
-def clear_all() -> tuple[str, str, str, list[list[str]], str]:
+def clear_all() -> tuple[str, str, str, list[list[str]], str, str]:
     """Reset completo dell'interfaccia."""
-    return "", EMPTY_MARKDOWN, EMPTY_HTML, [], EMPTY_ERROR
+    return "", EMPTY_MARKDOWN, EMPTY_HTML, [], EMPTY_ERROR, EMPTY_ALERT_GUIDANCE
 
 
 def main() -> None:
@@ -110,6 +129,8 @@ def main() -> None:
             wrap=True,
         )
 
+        alert_guidance_md = gr.Markdown(value=EMPTY_ALERT_GUIDANCE)
+
         clear_btn = gr.Button("Pulisci")
 
         gr.HTML(
@@ -120,17 +141,36 @@ def main() -> None:
         analyze_btn.click(
             fn=run_analysis,
             inputs=[text_input],
-            outputs=[summary_md, artifacts_html, results_table, error_box],
+            outputs=[
+                summary_md,
+                artifacts_html,
+                results_table,
+                error_box,
+                alert_guidance_md,
+            ],
         )
         text_input.submit(
             fn=run_analysis,
             inputs=[text_input],
-            outputs=[summary_md, artifacts_html, results_table, error_box],
+            outputs=[
+                summary_md,
+                artifacts_html,
+                results_table,
+                error_box,
+                alert_guidance_md,
+            ],
         )
 
         clear_btn.click(
             fn=clear_all,
-            outputs=[text_input, summary_md, artifacts_html, results_table, error_box],
+            outputs=[
+                text_input,
+                summary_md,
+                artifacts_html,
+                results_table,
+                error_box,
+                alert_guidance_md,
+            ],
         )
 
     app.launch(server_name="127.0.0.1")
