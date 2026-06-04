@@ -13,22 +13,36 @@ from decoder_siem.report import print_summary, write_json_report, write_markdown
 
 load_dotenv()
 
+INPUT_EXTENSIONS = {".json", ".log", ".txt", ".cef"}
+
+
 app = typer.Typer(
     name="decoder-siem",
-    help="Estrae IOC da JSON incidenti SIEM e li arricchisce via VirusTotal.",
+    help="Estrae IOC da JSON/CEF incidenti SIEM e li arricchisce via VirusTotal.",
     no_args_is_help=True,
 )
 
 
-def _collect_json_paths(path: Path, recursive: bool) -> list[Path]:
+def _collect_input_paths(path: Path, recursive: bool) -> list[Path]:
     if path.is_file():
+        if path.suffix.lower() not in INPUT_EXTENSIONS:
+            raise typer.BadParameter(
+                f"Estensione non supportata: {path.suffix}. "
+                f"Usa: {', '.join(sorted(INPUT_EXTENSIONS))}"
+            )
         return [path]
     if not path.is_dir():
         raise typer.BadParameter(f"Percorso non trovato: {path}")
-    pattern = "**/*.json" if recursive else "*.json"
-    files = sorted(path.glob(pattern))
+    files: list[Path] = []
+    for ext in INPUT_EXTENSIONS:
+        pattern = f"**/*{ext}" if recursive else f"*{ext}"
+        files.extend(path.glob(pattern))
+    files = sorted(set(files))
     if not files:
-        raise typer.BadParameter(f"Nessun file JSON in {path}")
+        raise typer.BadParameter(
+            f"Nessun file supportato in {path} "
+            f"(estensioni: {', '.join(sorted(INPUT_EXTENSIONS))})"
+        )
     return files
 
 
@@ -45,7 +59,7 @@ def version_cmd() -> None:
 
 @app.command("extract-only")
 def extract_only(
-    input_path: Path = typer.Argument(..., help="File JSON o cartella"),
+    input_path: Path = typer.Argument(..., help="File JSON/CEF/log o cartella"),
     output: Optional[Path] = typer.Option(
         None, "-o", "--output", help="File report JSON di output"
     ),
@@ -53,11 +67,11 @@ def extract_only(
         None, "--markdown", "-m", help="File report Markdown"
     ),
     recursive: bool = typer.Option(
-        False, "--recursive", "-r", help="Cerca JSON ricorsivamente nelle cartelle"
+        False, "--recursive", "-r", help="Cerca file ricorsivamente nelle cartelle"
     ),
 ) -> None:
     """Estrae IOC senza chiamare API esterne."""
-    paths = _collect_json_paths(input_path, recursive)
+    paths = _collect_input_paths(input_path, recursive)
     for p in paths:
         out = output or _default_output(p)
         report = build_report(p, enrich=False)
@@ -71,7 +85,7 @@ def extract_only(
 
 @app.command("analyze")
 def analyze(
-    input_path: Path = typer.Argument(..., help="File JSON o cartella"),
+    input_path: Path = typer.Argument(..., help="File JSON/CEF/log o cartella"),
     output: Optional[Path] = typer.Option(
         None, "-o", "--output", help="File report JSON di output"
     ),
@@ -82,7 +96,7 @@ def analyze(
         False, "--no-enrich", help="Equivalente a extract-only (senza VirusTotal)"
     ),
     recursive: bool = typer.Option(
-        False, "--recursive", "-r", help="Cerca JSON ricorsivamente nelle cartelle"
+        False, "--recursive", "-r", help="Cerca file ricorsivamente nelle cartelle"
     ),
     cache_dir: Optional[Path] = typer.Option(
         None, "--cache-dir", help="Directory cache risposte VirusTotal"
@@ -102,7 +116,7 @@ def analyze(
         )
         no_enrich = True
 
-    paths = _collect_json_paths(input_path, recursive)
+    paths = _collect_input_paths(input_path, recursive)
     for p in paths:
         out = output or _default_output(p)
         report = build_report(

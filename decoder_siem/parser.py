@@ -50,9 +50,8 @@ def get_vendor_block(data: dict[str, Any]) -> tuple[str | None, dict[str, Any] |
 
 
 def prepare_incident_data(path: Path) -> tuple[Any, str | None, dict[str, Any] | None]:
-    raw = load_json_file(path)
-    parsed = parse_nested_json_strings(raw)
-    vendor, block = None, None
-    if isinstance(parsed, dict):
-        vendor, block = get_vendor_block(parsed)
-    return parsed, vendor, block
+    """Backward-compatible; prefer decoder_siem.parsers.loader.load_document."""
+    from decoder_siem.parsers.loader import load_document
+
+    doc = load_document(path)
+    return doc.data, doc.vendor, doc.vendor_block

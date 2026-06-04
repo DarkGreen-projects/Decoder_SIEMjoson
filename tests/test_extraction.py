@@ -82,7 +82,7 @@ def test_generic_regex_on_description(cynet_block):
 
 
 def test_extract_artifacts_from_file():
-    artifacts, ctx = extract_artifacts_from_file(FIXTURE)
+    artifacts, ctx, _raw = extract_artifacts_from_file(FIXTURE)
     assert ctx.vendor == "Cynet"
     assert len(artifacts) > 0
 

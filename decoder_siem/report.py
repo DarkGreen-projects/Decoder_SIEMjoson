@@ -22,6 +22,8 @@ def render_markdown(report: IncidentReport) -> str:
     lines.append(f"- **Generato:** {report.generated_at}")
     if report.context.vendor:
         lines.append(f"- **Vendor:** {report.context.vendor}")
+    if report.context.log_format:
+        lines.append(f"- **Formato:** {report.context.log_format}")
     if report.context.incident_name:
         lines.append(f"- **Incidente:** {report.context.incident_name}")
     if report.context.host_name:
@@ -35,6 +37,28 @@ def render_markdown(report: IncidentReport) -> str:
     if report.context.malware_type:
         lines.append(f"- **Malware type:** {report.context.malware_type}")
     lines.append("")
+
+    if report.context.vendor == "FortiGate":
+        lines.append("## Evento FortiGate")
+        lines.append("")
+        if report.context.event_name:
+            lines.append(f"- **Evento CEF:** {report.context.event_name}")
+        if report.context.cef_severity is not None:
+            lines.append(f"- **Severità CEF:** {report.context.cef_severity}")
+        if report.context.device_external_id:
+            lines.append(f"- **Device ID:** {report.context.device_external_id}")
+        if report.context.log_description:
+            lines.append(f"- **Descrizione:** {report.context.log_description}")
+        if report.context.message:
+            lines.append(f"- **Messaggio:** {report.context.message}")
+        extra = report.context.extra or {}
+        if extra.get("FTNTFGTlevel"):
+            lines.append(f"- **Livello:** {extra['FTNTFGTlevel']}")
+        if extra.get("FTNTFGTsubtype"):
+            lines.append(f"- **Sottotipo:** {extra['FTNTFGTsubtype']}")
+        if extra.get("cat"):
+            lines.append(f"- **Categoria:** {extra['cat']}")
+        lines.append("")
 
     internal = report.internal_ips
     if internal:

@@ -1,0 +1,1 @@
+<186>May 28 21:16:21 FortiGate-80F CEF:0|Fortinet|Fortigate|v7.4.3|32200|event:system|6|deviceExternalId=FGT80FTK23038715 FTNTFGTeventtime=1779995729064107360 FTNTFGTtz=+0200 FTNTFGTlogid=0100032200 cat=event:system FTNTFGTsubtype=system FTNTFGTlevel=critical FTNTFGTvd=root FTNTFGTlogdesc=Device shutdown msg=Fortigate had experienced an unexpected power off!

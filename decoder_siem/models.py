@@ -52,14 +52,21 @@ class EnrichmentResult(BaseModel):
 
 class IncidentContext(BaseModel):
     vendor: str | None = None
+    log_format: str | None = None
     incident_name: str | None = None
+    event_name: str | None = None
     host_name: str | None = None
     host_ip: str | None = None
     user_name: str | None = None
     severity: int | None = None
+    cef_severity: int | None = None
+    log_description: str | None = None
+    message: str | None = None
+    device_external_id: str | None = None
     malware_id: str | None = None
     malware_type: str | None = None
     date_in: str | None = None
+    extra: dict[str, Any] = Field(default_factory=dict)
 
 
 class ArtifactReport(BaseModel):
@@ -73,6 +80,7 @@ class IncidentReport(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     context: IncidentContext = Field(default_factory=IncidentContext)
+    raw_event: dict[str, Any] | None = None
     artifacts: list[ArtifactReport] = Field(default_factory=list)
 
     @property
