@@ -25,7 +25,8 @@ class ArtifactType(str, Enum):
 class EmailVerdict(str, Enum):
     PHISHING = "phishing"
     SPAM = "spam"
-    OTHER = "other"
+    SAFE = "safe"
+    UNCLASSIFIABLE = "unclassifiable"
 
 
 class EmailAnalysisResult(BaseModel):
@@ -35,6 +36,7 @@ class EmailAnalysisResult(BaseModel):
     indicators: list[str] = Field(default_factory=list)
     auth: dict[str, str] = Field(default_factory=dict)
     summary: str
+    detail: str | None = None
 
 
 class ArtifactScope(str, Enum):

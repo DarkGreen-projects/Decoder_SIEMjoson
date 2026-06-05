@@ -383,21 +383,38 @@ def _email_guidance(
         ]
         return ("Email — Spam", desc, focus, key_facts, actions)
 
+    if verdict == "unclassifiable":
+        detail = analysis.get("detail") or "Header insufficienti o malformati"
+        desc = (
+            f"Email **non classificabile** (criticità **{criticality}/100**). "
+            f"{detail}"
+        )
+        focus = [
+            "Verificare di aver incollato l'intero blocco «Mostra originale»",
+            "Controllare che siano presenti From, Received e Message-ID",
+            "Ripetere l'analisi con header completi prima di escalation",
+        ]
+        actions = [
+            "Richiedere header completi al mittente o dal gateway email",
+            "Non basare blocchi automatici solo su questa analisi",
+        ]
+        return ("Email — Non classificabile", desc, focus, key_facts, actions)
+
     desc = (
-        f"Email classificata come **altro** (criticità **{criticality}/100**). "
-        "Può essere legittima o richiedere verifica manuale."
+        f"Email classificata come **safe** (criticità **{criticality}/100**). "
+        "Nessun indicatore malevolo rilevante negli header; infrastrutture note "
+        "escluse da OSINT automatico."
     )
     focus = [
-        "Rivedere indicatori in pannello analisi email",
-        f"IOC estratti per OSINT: {_fmt_list(facts.domains + facts.benign_public)}",
+        "Confermare coerenza mittente/contesto con l'utente se il messaggio è inatteso",
+        f"IOC analizzati: {_fmt_list(facts.domains + facts.benign_public)}",
+        "Domini noti (Google, Microsoft, …): link VT disponibile senza chiamate API",
     ]
-    if criticality >= 30:
-        focus.append("Criticità moderata: validare manualmente mittente e link")
     actions = [
-        "Archiviare esito analisi con header originali",
-        "Escalation solo se IOC OSINT risultano malevoli",
+        "Archiviare esito se coerente con attività legittima attesa",
+        "Escalation solo se compaiono IOC OSINT malevoli o contenuto sospetto nel corpo",
     ]
-    return ("Email — Altro / da verificare", desc, focus, key_facts, actions)
+    return ("Email — Safe", desc, focus, key_facts, actions)
 
 
 def _generic_guidance(

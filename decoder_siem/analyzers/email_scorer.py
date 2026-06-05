@@ -63,6 +63,36 @@ CONFIDENCE_LABEL_IT = {
     "high": "alta",
 }
 
+VERDICT_LABEL_IT = {
+    "phishing": "PHISHING",
+    "spam": "SPAM",
+    "safe": "SAFE",
+    "unclassifiable": "NON CLASSIFICABILE",
+}
+
+
+def _assess_header_quality(parsed: ParsedEmail) -> tuple[bool, list[str]]:
+    """True se header insufficienti o malformati per una classificazione affidabile."""
+    issues: list[str] = []
+    has_from = bool(parsed.from_addr and parsed.from_addr.email and "@" in parsed.from_addr.email)
+    has_received = bool(parsed.received_hops)
+    has_message_id = bool(parsed.message_id and "@" in parsed.message_id)
+    has_date = bool(parsed.date)
+
+    if not has_from:
+        issues.append("Header From assente o non valido")
+
+    structural = sum([has_received, has_message_id, has_date])
+    if structural < 1:
+        issues.append(
+            "Header strutturali insufficienti (manca almeno uno tra Received, Message-ID, Date)"
+        )
+
+    if not parsed.headers:
+        issues.append("Nessun header RFC 5322 riconosciuto")
+
+    return len(issues) > 0, issues
+
 
 def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
     score = 0
@@ -162,8 +192,7 @@ def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
         indicators.append("SPF/DKIM/DMARC pass e identità allineate")
 
     criticality = min(100, score)
-
-    verdict = EmailVerdict.OTHER
+    unclassifiable, header_issues = _assess_header_quality(parsed)
 
     identity_mismatch = bool(
         (from_domain and reply_domain and from_domain != reply_domain)
@@ -173,23 +202,25 @@ def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
         _auth_is_fail(parsed.auth.dmarc) or identity_mismatch
     )
 
-    if criticality >= 55 and strong_phishing:
+    detail: str | None = None
+
+    if unclassifiable:
+        verdict = EmailVerdict.UNCLASSIFIABLE
+        detail = "; ".join(header_issues)
+        indicators = header_issues + indicators
+    elif criticality >= 55 and strong_phishing:
         verdict = EmailVerdict.PHISHING
     elif criticality >= 40 and spam_signals >= 1 and not strong_phishing:
         verdict = EmailVerdict.SPAM
     elif criticality >= 40 and spam_signals > phishing_signals and not strong_phishing:
         verdict = EmailVerdict.SPAM
     else:
-        verdict = EmailVerdict.OTHER
+        verdict = EmailVerdict.SAFE
+        detail = "Nessun indicatore malevolo rilevante negli header analizzati"
 
     confidence = confidence_from_criticality(criticality)
     confidence_it = CONFIDENCE_LABEL_IT[confidence]
-
-    verdict_label = {
-        EmailVerdict.PHISHING: "PHISHING",
-        EmailVerdict.SPAM: "SPAM",
-        EmailVerdict.OTHER: "ALTRO",
-    }[verdict]
+    verdict_label = VERDICT_LABEL_IT[verdict.value]
 
     summary = (
         f"Verdetto email: {verdict_label} — criticità {criticality}/100 "
@@ -203,4 +234,5 @@ def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
         indicators=indicators,
         auth=auth,
         summary=summary,
+        detail=detail,
     )

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from decoder_siem.enrichment_config import EnrichmentConfig
+from decoder_siem.known_benign import is_known_benign_artifact
 from decoder_siem.enrichers.abuseipdb import AbuseIPDBEnricher
 from decoder_siem.enrichers.otx import OTXEnricher
 from decoder_siem.enrichers.urlhaus import URLhausEnricher
@@ -248,6 +249,16 @@ def _apply_enrichment(
     ]
     try:
         for ar in enrichable:
+            if is_known_benign_artifact(ar.artifact):
+                ar.enrichments.append(
+                    EnrichmentResult(
+                        enricher="trusted",
+                        status=EnrichmentStatus.SKIPPED,
+                        summary="Infrastruttura nota: OSINT saltato (link VT disponibile)",
+                    )
+                )
+                continue
+
             for enricher in enrichers:
                 if enricher.supports(ar.artifact):
                     ar.enrichments.append(enricher.enrich(ar.artifact))

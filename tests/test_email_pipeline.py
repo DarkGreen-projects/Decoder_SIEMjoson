@@ -23,4 +23,4 @@ def test_pipeline_clean_headers():
     text = Path(__file__).parent / "fixtures" / "email_clean_headers.txt"
     report = build_report_from_text(text.read_text(encoding="utf-8"), enrich=False)
     analysis = report.context.extra.get("email_analysis")
-    assert analysis["verdict"] == EmailVerdict.OTHER.value
+    assert analysis["verdict"] == EmailVerdict.SAFE.value

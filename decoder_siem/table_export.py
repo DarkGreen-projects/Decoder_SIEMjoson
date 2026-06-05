@@ -6,7 +6,8 @@ from typing import Literal
 from decoder_siem.enrichers.abuseipdb import AbuseIPDBEnricher
 from decoder_siem.enrichers.otx import OTXEnricher
 from decoder_siem.enrichers.urlhaus import URLhausEnricher
-from decoder_siem.analyzers.email_scorer import CONFIDENCE_LABEL_IT
+from decoder_siem.analyzers.email_scorer import CONFIDENCE_LABEL_IT, VERDICT_LABEL_IT
+from decoder_siem.known_benign import is_known_benign_artifact
 from decoder_siem.models import (
     Artifact,
     ArtifactReport,
@@ -144,6 +145,9 @@ def classify_artifact(ar: ArtifactReport) -> Verdict:
     if art.scope == ArtifactScope.INTERNAL:
         return "benign"
 
+    if is_known_benign_artifact(art):
+        return "benign"
+
     if not ar.enrichments:
         if art.type not in ENRICHABLE_TYPES:
             return "benign"
@@ -203,6 +207,8 @@ def _format_enrichment_snippet(enr: EnrichmentResult) -> str | None:
         }
         return labels.get(enr.enricher, enr.summary)
     if enr.status == EnrichmentStatus.SKIPPED:
+        if enr.enricher == "trusted":
+            return enr.summary or "infrastruttura nota"
         return enr.summary
     if enr.status == EnrichmentStatus.ERROR:
         return enr.summary or f"errore {enr.enricher}"
@@ -213,6 +219,12 @@ def _artifact_note(ar: ArtifactReport) -> str:
     art = ar.artifact
     if art.scope == ArtifactScope.INTERNAL:
         return "interno"
+
+    if is_known_benign_artifact(art):
+        trusted = enrichment_by_name(ar, "trusted")
+        if trusted and trusted.status == EnrichmentStatus.SKIPPED:
+            return "infrastruttura nota (link VT)"
+        return "infrastruttura nota"
 
     if not ar.enrichments:
         return "non verificato"
@@ -306,6 +318,10 @@ def email_verdict_color(verdict: str, criticality: int) -> str:
         return COLOR_MALICIOUS
     if verdict == EmailVerdict.SPAM.value:
         return COLOR_SPAM
+    if verdict == EmailVerdict.SAFE.value:
+        return COLOR_BENIGN
+    if verdict == EmailVerdict.UNCLASSIFIABLE.value:
+        return COLOR_NEUTRAL
     if criticality < 30:
         return COLOR_BENIGN
     return COLOR_NEUTRAL
@@ -325,11 +341,8 @@ def email_verdict_html(report: IncidentReport) -> str:
     auth = analysis.get("auth") or {}
     color = email_verdict_color(verdict, criticality)
 
-    verdict_label = {
-        EmailVerdict.PHISHING.value: "PHISHING",
-        EmailVerdict.SPAM.value: "SPAM",
-        EmailVerdict.OTHER.value: "ALTRO",
-    }.get(verdict, verdict.upper())
+    verdict_label = VERDICT_LABEL_IT.get(verdict, verdict.upper())
+    detail = analysis.get("detail")
 
     auth_line = (
         f"SPF: {auth.get('spf', 'N/D')} | "
@@ -343,17 +356,22 @@ def email_verdict_html(report: IncidentReport) -> str:
     if len(indicators) > 8:
         more = f"<li><i>+{len(indicators) - 8} altri indicatori</i></li>"
 
-    return (
+    parts = [
         f'<div class="email-verdict-panel" style="margin-bottom:1rem; padding:0.75rem; '
-        f'border-left:4px solid {color}; background:#fafafa;">'
+        f'border-left:4px solid {color}; background:#fafafa;">',
         f'<h4 style="margin:0 0 0.5rem 0; color:{color};">'
         f"Analisi email: {html.escape(verdict_label)} — "
         f"criticità {criticality}/100 (confidenza {html.escape(confidence_label)})"
-        f"</h4>"
-        f'<p style="margin:0.35rem 0;">{html.escape(auth_line)}</p>'
+        f"</h4>",
+        f'<p style="margin:0.35rem 0;">{html.escape(auth_line)}</p>',
+    ]
+    if detail:
+        parts.append(f'<p style="margin:0.35rem 0;">{html.escape(detail)}</p>')
+    parts.append(
         f'<ul style="margin:0.35rem 0 0 1.2em; padding:0;">{indicator_items}{more}</ul>'
-        f"</div>"
     )
+    parts.append("</div>")
+    return "".join(parts)
 
 
 def report_to_colored_html(report: IncidentReport) -> str:

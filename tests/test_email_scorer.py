@@ -25,12 +25,19 @@ def test_score_spam():
 
 def test_score_clean():
     result = _score_fixture("email_clean_headers.txt")
-    assert result.verdict == EmailVerdict.OTHER
+    assert result.verdict == EmailVerdict.SAFE
     assert result.criticality == 0
     assert result.confidence == "none"
     assert result.auth["spf"] == "pass"
     assert result.auth["dmarc"] == "pass"
-    assert "nullo" in result.summary
+    assert "SAFE" in result.summary
+    assert result.detail is not None
+
+
+def test_score_unclassifiable():
+    result = _score_fixture("email_unclassifiable_headers.txt")
+    assert result.verdict == EmailVerdict.UNCLASSIFIABLE
+    assert any("From" in ind or "insufficienti" in ind.lower() for ind in result.indicators)
 
 
 def test_confidence_scales_with_criticality():
