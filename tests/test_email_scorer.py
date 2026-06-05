@@ -26,6 +26,18 @@ def test_score_spam():
 def test_score_clean():
     result = _score_fixture("email_clean_headers.txt")
     assert result.verdict == EmailVerdict.OTHER
-    assert result.criticality < 40
+    assert result.criticality == 0
+    assert result.confidence == "none"
     assert result.auth["spf"] == "pass"
     assert result.auth["dmarc"] == "pass"
+    assert "nullo" in result.summary
+
+
+def test_confidence_scales_with_criticality():
+    from decoder_siem.analyzers.email_scorer import confidence_from_criticality
+
+    assert confidence_from_criticality(0) == "none"
+    assert confidence_from_criticality(15) == "none"
+    assert confidence_from_criticality(25) == "low"
+    assert confidence_from_criticality(70) == "medium"
+    assert confidence_from_criticality(95) == "high"

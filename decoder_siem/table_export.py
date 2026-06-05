@@ -6,6 +6,7 @@ from typing import Literal
 from decoder_siem.enrichers.abuseipdb import AbuseIPDBEnricher
 from decoder_siem.enrichers.otx import OTXEnricher
 from decoder_siem.enrichers.urlhaus import URLhausEnricher
+from decoder_siem.analyzers.email_scorer import CONFIDENCE_LABEL_IT
 from decoder_siem.models import (
     Artifact,
     ArtifactReport,
@@ -318,7 +319,8 @@ def email_verdict_html(report: IncidentReport) -> str:
 
     verdict = analysis.get("verdict", "other")
     criticality = analysis.get("criticality", 0)
-    confidence = analysis.get("confidence", "low")
+    confidence = analysis.get("confidence", "none")
+    confidence_label = CONFIDENCE_LABEL_IT.get(confidence, confidence)
     indicators = analysis.get("indicators") or []
     auth = analysis.get("auth") or {}
     color = email_verdict_color(verdict, criticality)
@@ -346,7 +348,7 @@ def email_verdict_html(report: IncidentReport) -> str:
         f'border-left:4px solid {color}; background:#fafafa;">'
         f'<h4 style="margin:0 0 0.5rem 0; color:{color};">'
         f"Analisi email: {html.escape(verdict_label)} — "
-        f"criticità {criticality}/100 ({html.escape(confidence)})"
+        f"criticità {criticality}/100 (confidenza {html.escape(confidence_label)})"
         f"</h4>"
         f'<p style="margin:0.35rem 0;">{html.escape(auth_line)}</p>'
         f'<ul style="margin:0.35rem 0 0 1.2em; padding:0;">{indicator_items}{more}</ul>'

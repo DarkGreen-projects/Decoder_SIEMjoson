@@ -45,6 +45,25 @@ def _auth_is_weak(value: str) -> bool:
     return value.lower() in ("fail", "softfail", "none", "neutral", "permerror", "temperror")
 
 
+def confidence_from_criticality(criticality: int) -> str:
+    """Confidenza allineata al punteggio di rischio (non al verdetto)."""
+    if criticality >= 90:
+        return "high"
+    if criticality >= 60:
+        return "medium"
+    if criticality >= 20:
+        return "low"
+    return "none"
+
+
+CONFIDENCE_LABEL_IT = {
+    "none": "nullo",
+    "low": "bassa",
+    "medium": "media",
+    "high": "alta",
+}
+
+
 def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
     score = 0
     indicators: list[str] = []
@@ -145,7 +164,6 @@ def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
     criticality = min(100, score)
 
     verdict = EmailVerdict.OTHER
-    confidence = "low"
 
     identity_mismatch = bool(
         (from_domain and reply_domain and from_domain != reply_domain)
@@ -157,19 +175,15 @@ def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
 
     if criticality >= 55 and strong_phishing:
         verdict = EmailVerdict.PHISHING
-        confidence = "high" if criticality >= 70 else "medium"
     elif criticality >= 40 and spam_signals >= 1 and not strong_phishing:
         verdict = EmailVerdict.SPAM
-        confidence = "medium" if criticality >= 55 else "low"
     elif criticality >= 40 and spam_signals > phishing_signals and not strong_phishing:
         verdict = EmailVerdict.SPAM
-        confidence = "low"
-    elif criticality < 25 and parsed.auth.spf == "pass" and parsed.auth.dmarc == "pass":
-        verdict = EmailVerdict.OTHER
-        confidence = "high"
     else:
         verdict = EmailVerdict.OTHER
-        confidence = "medium" if criticality >= 30 else "low"
+
+    confidence = confidence_from_criticality(criticality)
+    confidence_it = CONFIDENCE_LABEL_IT[confidence]
 
     verdict_label = {
         EmailVerdict.PHISHING: "PHISHING",
@@ -179,7 +193,7 @@ def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
 
     summary = (
         f"Verdetto email: {verdict_label} — criticità {criticality}/100 "
-        f"(confidenza {confidence})"
+        f"(confidenza {confidence_it})"
     )
 
     return EmailAnalysisResult(
