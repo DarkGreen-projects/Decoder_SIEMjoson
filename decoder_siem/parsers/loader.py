@@ -7,8 +7,14 @@ from typing import Any, Literal
 
 from decoder_siem.parser import get_vendor_block, parse_nested_json_strings
 from decoder_siem.parsers.cef import is_fortigate_cef, parse_cef_line
+from decoder_siem.parsers.email import (
+    parse_email_headers,
+    parse_email_message,
+    parsed_email_to_dict,
+)
 from decoder_siem.parsers.normalize import (
     looks_like_cef,
+    looks_like_email_headers,
     looks_like_json,
     normalize_pasted_text,
     parse_json_lenient,
@@ -17,9 +23,12 @@ from decoder_siem.parsers.normalize import (
 CEF_WRAPPER_KEYS = ("message", "raw", "log", "event", "cef", "syslog")
 
 
+DocumentFormat = Literal["json", "cef", "email"]
+
+
 @dataclass
 class LoadedDocument:
-    format: Literal["json", "cef"]
+    format: DocumentFormat
     vendor: str | None
     data: Any
     vendor_block: dict[str, Any] | None = None
@@ -139,11 +148,27 @@ def load_text(text: str, *, source_hint: str | None = None) -> LoadedDocument:
     if looks_like_cef(content):
         return _parse_cef_text(content)
 
+    is_eml = suffix == ".eml"
+    if is_eml or looks_like_email_headers(content):
+        parsed = (
+            parse_email_message(content)
+            if is_eml
+            else parse_email_headers(content)
+        )
+        block = parsed_email_to_dict(parsed)
+        return LoadedDocument(
+            format="email",
+            vendor="EmailHeaders",
+            data=block,
+            vendor_block=block,
+            raw_event=block,
+        )
+
     label = source_hint or "input"
     raise ValueError(
         f"Formato non riconosciuto in {label}. "
-        "Incolla un JSON che inizia con { (es. {\"MicrosoftGraph\":...}) "
-        "oppure una riga syslog che contiene CEF:. "
+        "Incolla un JSON che inizia con { (es. {\"MicrosoftGraph\":...}), "
+        "una riga syslog con CEF:, oppure header email (From:, Received:, ...). "
         "Evita testo prima/dopo il JSON e virgolette esterne."
     )
 

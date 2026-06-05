@@ -84,6 +84,32 @@ def render_markdown(report: IncidentReport) -> str:
             lines.append(f"- **Descrizione:** {report.context.log_description}")
         lines.append("")
 
+    if report.context.vendor == "EmailHeaders":
+        lines.append("## Analisi email")
+        lines.append("")
+        extra = report.context.extra or {}
+        analysis = extra.get("email_analysis") or {}
+        if report.context.mail_from:
+            lines.append(f"- **From:** {report.context.mail_from}")
+        if report.context.reply_to:
+            lines.append(f"- **Reply-To:** {report.context.reply_to}")
+        if report.context.subject:
+            lines.append(f"- **Subject:** {report.context.subject}")
+        if analysis:
+            lines.append(
+                f"- **Verdetto:** {analysis.get('verdict', 'N/D')} "
+                f"(criticità {analysis.get('criticality', 0)}/100, "
+                f"confidenza {analysis.get('confidence', 'N/D')})"
+            )
+            auth = analysis.get("auth") or {}
+            lines.append(
+                f"- **Auth:** SPF={auth.get('spf')}, DKIM={auth.get('dkim')}, "
+                f"DMARC={auth.get('dmarc')}"
+            )
+            for ind in analysis.get("indicators") or []:
+                lines.append(f"  - {ind}")
+        lines.append("")
+
     internal = report.internal_ips
     if internal:
         lines.append("## Rete interna (non inviata a VirusTotal)")

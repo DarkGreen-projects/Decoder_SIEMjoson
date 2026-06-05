@@ -1,0 +1,15 @@
+From: notifications@trusted-corp.example
+Reply-To: notifications@trusted-corp.example
+Return-Path: <notifications@trusted-corp.example>
+To: analyst@company.local
+Subject: Monthly security report
+Date: Wed, 4 Jun 2025 09:00:00 +0000
+Message-ID: <report-2025-06@trusted-corp.example>
+MIME-Version: 1.0
+Authentication-Results: mx.company.local;
+       spf=pass smtp.mailfrom=trusted-corp.example;
+       dkim=pass header.d=trusted-corp.example;
+       dmarc=pass action=none header.from=trusted-corp.example
+Received: from mail.trusted-corp.example (mail.trusted-corp.example [93.184.216.34])
+        by mx.company.local with ESMTPS;
+        Wed, 4 Jun 2025 09:00:05 +0000

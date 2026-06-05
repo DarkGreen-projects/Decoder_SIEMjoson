@@ -1,0 +1,17 @@
+From: "Finance Department" <ceo@legit-company.com>
+Reply-To: attacker@evil-phish.example
+Return-Path: <bounce@evil-phish.example>
+To: victim@company.local
+Subject: Urgent: verify your account password
+Date: Mon, 2 Jun 2025 10:15:00 +0200
+Message-ID: <phish001@evil-phish.example>
+MIME-Version: 1.0
+Authentication-Results: mx.google.com;
+       spf=fail (google.com: domain of evil-phish.example does not designate 203.0.113.50 as permitted sender);
+       dkim=none (message not signed);
+       dmarc=fail action=none header.from=legit-company.com
+Received: from mail.evil-phish.example (mail.evil-phish.example [203.0.113.50])
+        by mx.google.com with ESMTPS id abc123;
+        Mon, 2 Jun 2025 10:14:55 +0200 (CEST)
+Received: from internal-mta ([192.168.1.10])
+        by mail.evil-phish.example; Mon, 2 Jun 2025 10:14:50 +0200

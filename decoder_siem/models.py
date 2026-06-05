@@ -17,8 +17,24 @@ class ArtifactType(str, Enum):
     FILE_PATH = "file_path"
     HOSTNAME = "hostname"
     USERNAME = "username"
+    EMAIL_ADDRESS = "email_address"
     MALWARE_LABEL = "malware_label"
     OTHER = "other"
+
+
+class EmailVerdict(str, Enum):
+    PHISHING = "phishing"
+    SPAM = "spam"
+    OTHER = "other"
+
+
+class EmailAnalysisResult(BaseModel):
+    verdict: EmailVerdict
+    criticality: int = Field(ge=0, le=100)
+    confidence: str
+    indicators: list[str] = Field(default_factory=list)
+    auth: dict[str, str] = Field(default_factory=dict)
+    summary: str
 
 
 class ArtifactScope(str, Enum):
@@ -66,6 +82,9 @@ class IncidentContext(BaseModel):
     malware_id: str | None = None
     malware_type: str | None = None
     date_in: str | None = None
+    mail_from: str | None = None
+    reply_to: str | None = None
+    subject: str | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
 
 

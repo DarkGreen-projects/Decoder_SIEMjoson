@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from decoder_siem.enrichers.base import Enricher
 from decoder_siem.extractors import (
     CynetExtractor,
+    EmailHeaderExtractor,
     FortiGateExtractor,
     GenericExtractor,
     MicrosoftDefenderExtractor,
@@ -64,6 +65,22 @@ def _context_from_defender(ctx_data: dict) -> IncidentContext:
     )
 
 
+def _context_from_email(ctx_data: dict) -> IncidentContext:
+    data = dict(ctx_data)
+    extra = data.pop("extra", {}) or {}
+    return IncidentContext(
+        vendor="EmailHeaders",
+        log_format=data.get("log_format", "email"),
+        incident_name=data.get("incident_name"),
+        event_name=data.get("event_name"),
+        mail_from=data.get("mail_from"),
+        reply_to=data.get("reply_to"),
+        subject=data.get("subject"),
+        message=data.get("message"),
+        extra=extra,
+    )
+
+
 def _context_from_fortigate(ctx_data: dict) -> IncidentContext:
     data = dict(ctx_data)
     extra = data.pop("extra", {}) or {}
@@ -107,6 +124,12 @@ def _extract_from_document(
         artifacts = merge_artifacts(md.extract(doc.vendor_block), artifacts)
         ctx_data = md.extract_context(doc.vendor_block)
         context = _context_from_defender(ctx_data)
+
+    elif doc.vendor == "EmailHeaders" and doc.vendor_block:
+        email_ext = EmailHeaderExtractor()
+        artifacts = merge_artifacts(email_ext.extract(doc.vendor_block), artifacts)
+        ctx_data = email_ext.extract_context(doc.vendor_block)
+        context = _context_from_email(ctx_data)
 
     return artifacts, context, doc.raw_event
 

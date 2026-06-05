@@ -329,6 +329,77 @@ def _cynet_guidance(
     return (f"Cynet — {name}", desc, focus, key_facts, actions)
 
 
+def _email_guidance(
+    ctx: IncidentContext, report: IncidentReport, facts: ReportFacts
+) -> tuple[str, str, list[str], list[str], list[str]]:
+    extra = ctx.extra or {}
+    analysis = extra.get("email_analysis") or {}
+    verdict = analysis.get("verdict", "other")
+    criticality = analysis.get("criticality", 0)
+    indicators = analysis.get("indicators") or []
+    auth = analysis.get("auth") or {}
+
+    key_facts = [
+        f"From: `{ctx.mail_from or 'N/D'}`",
+        f"Reply-To: `{ctx.reply_to or 'N/D'}`",
+        f"Subject: `{ctx.subject or 'N/D'}`",
+        f"SPF/DKIM/DMARC: {auth.get('spf', 'N/D')}/{auth.get('dkim', 'N/D')}/{auth.get('dmarc', 'N/D')}",
+        f"Hop Received: {extra.get('hop_count', 'N/D')}",
+    ]
+    if facts.malicious:
+        key_facts.append(f"IOC OSINT malevoli: {_fmt_list(facts.malicious)}")
+
+    if verdict == "phishing":
+        desc = (
+            f"Header email classificati come **phishing** (criticità **{criticality}/100**). "
+            f"Indicatori: {', '.join(indicators[:4]) or 'allineamento identità / auth debole'}."
+        )
+        focus = [
+            "Verificare link e allegati nel corpo (non analizzati in profondità in v1)",
+            "Controllare mailbox destinatario: regole di inoltro sospette",
+            f"Correlare IP mittente: {_fmt_list(facts.benign_public + facts.malicious)}",
+            "Valutare blocco dominio mittente su gateway email",
+        ]
+        actions = [
+            "Isolare messaggio in quarantena e avvisare utente destinatario",
+            "Cercare stesso mittente/Reply-To su altre mailbox (hunting)",
+            "Aprire ticket SOC con header completi e verdetto",
+        ]
+        return ("Email — Phishing", desc, focus, key_facts, actions)
+
+    if verdict == "spam":
+        desc = (
+            f"Header email classificati come **spam** (criticità **{criticality}/100**). "
+            "Pattern bulk/marketing o autenticazione debole."
+        )
+        focus = [
+            "Valutare policy anti-spam e blocklist dominio mittente",
+            f"Auth header: SPF={auth.get('spf')}, DKIM={auth.get('dkim')}",
+            "Verificare se utente si è iscritto volontariamente a liste",
+        ]
+        actions = [
+            "Aggiungere mittente a blocklist se ripetuto",
+            "Segnalare a team email security per tuning regole",
+        ]
+        return ("Email — Spam", desc, focus, key_facts, actions)
+
+    desc = (
+        f"Email classificata come **altro** (criticità **{criticality}/100**). "
+        "Può essere legittima o richiedere verifica manuale."
+    )
+    focus = [
+        "Rivedere indicatori in pannello analisi email",
+        f"IOC estratti per OSINT: {_fmt_list(facts.domains + facts.benign_public)}",
+    ]
+    if criticality >= 30:
+        focus.append("Criticità moderata: validare manualmente mittente e link")
+    actions = [
+        "Archiviare esito analisi con header originali",
+        "Escalation solo se IOC OSINT risultano malevoli",
+    ]
+    return ("Email — Altro / da verificare", desc, focus, key_facts, actions)
+
+
 def _generic_guidance(
     ctx: IncidentContext, report: IncidentReport, facts: ReportFacts
 ) -> tuple[str, str, list[str], list[str], list[str]]:
@@ -359,6 +430,8 @@ def build_alert_guidance(
         return _fortigate_guidance(ctx, report, facts)
     if vendor == "Cynet":
         return _cynet_guidance(ctx, report, facts)
+    if vendor == "EmailHeaders":
+        return _email_guidance(ctx, report, facts)
     return _generic_guidance(ctx, report, facts)
 
 

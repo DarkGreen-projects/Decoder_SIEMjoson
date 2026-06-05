@@ -120,3 +120,21 @@ def looks_like_json(content: str) -> bool:
 
 def looks_like_cef(content: str) -> bool:
     return "CEF:" in content.upper().replace("\u00a0", " ")
+
+
+_EMAIL_HEADER_MARKERS = (
+    "from:",
+    "received:",
+    "message-id:",
+    "mime-version:",
+    "authentication-results:",
+    "return-path:",
+    "subject:",
+)
+
+
+def looks_like_email_headers(content: str) -> bool:
+    """True if text looks like pasted RFC 5322 email headers."""
+    lower = content.lower()
+    hits = sum(1 for marker in _EMAIL_HEADER_MARKERS if marker in lower)
+    return hits >= 2

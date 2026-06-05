@@ -1,0 +1,18 @@
+From: deals@promo-marketing.example
+To: user@company.local
+Subject: Special offer invoice discount today only
+Date: Tue, 3 Jun 2025 08:00:00 +0000
+MIME-Version: 1.0
+Precedence: bulk
+List-Unsubscribe: <mailto:unsub@promo-marketing.example>
+Authentication-Results: mx.example.com; spf=softfail; dkim=none; dmarc=none
+Received: from bulk-sender.promo-marketing.example ([198.51.100.20]) by mx.example.com; Tue, 3 Jun 2025 08:00:01 +0000
+Received: from relay1.promo-marketing.example by bulk-sender.promo-marketing.example; Tue, 3 Jun 2025 07:59:58 +0000
+Received: from relay2.promo-marketing.example by relay1.promo-marketing.example; Tue, 3 Jun 2025 07:59:55 +0000
+Received: from relay3.promo-marketing.example by relay2.promo-marketing.example; Tue, 3 Jun 2025 07:59:52 +0000
+Received: from relay4.promo-marketing.example by relay3.promo-marketing.example; Tue, 3 Jun 2025 07:59:49 +0000
+Received: from relay5.promo-marketing.example by relay4.promo-marketing.example; Tue, 3 Jun 2025 07:59:46 +0000
+Received: from relay6.promo-marketing.example by relay5.promo-marketing.example; Tue, 3 Jun 2025 07:59:43 +0000
+Received: from relay7.promo-marketing.example by relay6.promo-marketing.example; Tue, 3 Jun 2025 07:59:40 +0000
+Received: from relay8.promo-marketing.example by relay7.promo-marketing.example; Tue, 3 Jun 2025 07:59:37 +0000
+Received: from relay9.promo-marketing.example by relay8.promo-marketing.example; Tue, 3 Jun 2025 07:59:34 +0000

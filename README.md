@@ -109,6 +109,7 @@ decoder-siem analyze ./alerts/ --recursive
 | Microsoft Defender / Graph | `.json` (chiave `MicrosoftGraph`) | `MicrosoftDefender` |
 | FortiGate syslog+CEF | `.cef`, `.log`, `.txt` | `FortiGate` |
 | CEF in wrapper JSON | `.json` (campo `message`, `raw`, `log`) | `FortiGate` |
+| Header email / messaggio RFC 5322 | incollati in GUI, `.eml`, `.txt` | `EmailHeaders` |
 
 Gli eventi FortiGate di tipo **system** (es. shutdown) spesso non contengono IOC: il report include comunque hostname, device ID, severità e messaggio. I log **traffic/utm** espongono IP (`FTNTFGTsrcip`, `FTNTFGTdstip`), URL e domini.
 
@@ -162,3 +163,13 @@ Per ogni IOC pubblico (IP, hash, dominio, URL) la pipeline interroga, se configu
 4. **VirusTotal** — detection ratio e permalink
 
 Il verdetto in GUI e tabella è **aggregato**: basta una fonte che segnali minaccia per colorare l'IOC in rosso carmino.
+
+## Analisi header email
+
+Incolla gli header da «Mostra originale» (Outlook/Gmail) o un file `.eml`. Il tool:
+
+- Calcola **criticità** (0–100) e classifica: **phishing**, **spam** o **altro**
+- Analizza SPF/DKIM/DMARC, allineamento From/Reply-To/Return-Path, catena `Received`
+- Estrae IP e domini dagli header per arricchimento OSINT
+
+La classificazione è **euristica locale** (non ML). Il corpo MIME e gli allegati non sono analizzati in profondità in questa versione.

@@ -11,6 +11,7 @@ from decoder_siem.models import (
     ArtifactReport,
     ArtifactScope,
     ArtifactType,
+    EmailVerdict,
     EnrichmentResult,
     EnrichmentStatus,
     IncidentContext,
@@ -33,6 +34,8 @@ TABLE_HEADERS = [
 
 COLOR_BENIGN = "#2e7d32"
 COLOR_MALICIOUS = "#960018"
+COLOR_SPAM = "#e65100"
+COLOR_NEUTRAL = "#616161"
 
 HASH_TYPES = {
     ArtifactType.HASH_SHA256,
@@ -297,16 +300,85 @@ def _format_value_html(ar: ArtifactReport) -> str:
     return value_esc
 
 
+def email_verdict_color(verdict: str, criticality: int) -> str:
+    if verdict == EmailVerdict.PHISHING.value:
+        return COLOR_MALICIOUS
+    if verdict == EmailVerdict.SPAM.value:
+        return COLOR_SPAM
+    if criticality < 30:
+        return COLOR_BENIGN
+    return COLOR_NEUTRAL
+
+
+def email_verdict_html(report: IncidentReport) -> str:
+    extra = report.context.extra or {}
+    analysis = extra.get("email_analysis")
+    if not analysis:
+        return ""
+
+    verdict = analysis.get("verdict", "other")
+    criticality = analysis.get("criticality", 0)
+    confidence = analysis.get("confidence", "low")
+    indicators = analysis.get("indicators") or []
+    auth = analysis.get("auth") or {}
+    color = email_verdict_color(verdict, criticality)
+
+    verdict_label = {
+        EmailVerdict.PHISHING.value: "PHISHING",
+        EmailVerdict.SPAM.value: "SPAM",
+        EmailVerdict.OTHER.value: "ALTRO",
+    }.get(verdict, verdict.upper())
+
+    auth_line = (
+        f"SPF: {auth.get('spf', 'N/D')} | "
+        f"DKIM: {auth.get('dkim', 'N/D')} | "
+        f"DMARC: {auth.get('dmarc', 'N/D')}"
+    )
+    indicator_items = "".join(
+        f"<li>{html.escape(ind)}</li>" for ind in indicators[:8]
+    )
+    more = ""
+    if len(indicators) > 8:
+        more = f"<li><i>+{len(indicators) - 8} altri indicatori</i></li>"
+
+    return (
+        f'<div class="email-verdict-panel" style="margin-bottom:1rem; padding:0.75rem; '
+        f'border-left:4px solid {color}; background:#fafafa;">'
+        f'<h4 style="margin:0 0 0.5rem 0; color:{color};">'
+        f"Analisi email: {html.escape(verdict_label)} — "
+        f"criticità {criticality}/100 ({html.escape(confidence)})"
+        f"</h4>"
+        f'<p style="margin:0.35rem 0;">{html.escape(auth_line)}</p>'
+        f'<ul style="margin:0.35rem 0 0 1.2em; padding:0;">{indicator_items}{more}</ul>'
+        f"</div>"
+    )
+
+
 def report_to_colored_html(report: IncidentReport) -> str:
-    if not report.artifacts:
+    email_panel = email_verdict_html(report)
+    display_artifacts = [
+        ar
+        for ar in report.artifacts
+        if ar.artifact.provenance != ["email.analysis"]
+    ]
+
+    if not display_artifacts:
+        body = "<p><i>Nessun IOC estratto dagli header.</i></p>"
+        if not email_panel:
+            return (
+                '<div class="artifacts-panel">'
+                "<h4>Elementi analizzati</h4>"
+                f"{body}</div>"
+            )
         return (
             '<div class="artifacts-panel">'
+            f"{email_panel}"
             "<h4>Elementi analizzati</h4>"
-            "<p><i>Nessun artefatto estratto.</i></p></div>"
+            f"{body}</div>"
         )
 
     items: list[str] = []
-    for ar in report.artifacts:
+    for ar in display_artifacts:
         verdict = classify_artifact(ar)
         color = verdict_color(verdict)
         art = ar.artifact
@@ -329,6 +401,7 @@ def report_to_colored_html(report: IncidentReport) -> str:
     )
     return (
         '<div class="artifacts-panel">'
+        f"{email_panel}"
         "<h4>Elementi analizzati</h4>"
         f"{legend}"
         f'<ul style="list-style:disc; padding-left:1.2em;">{"".join(items)}</ul>'
@@ -394,8 +467,25 @@ def context_to_markdown(ctx: IncidentContext, *, artifact_count: int = 0) -> str
         lines.append(f"- **Device ID:** {ctx.device_external_id}")
     if ctx.malware_id:
         lines.append(f"- **Malware ID:** {ctx.malware_id}")
+    if ctx.mail_from:
+        lines.append(f"- **From:** {ctx.mail_from}")
+    if ctx.reply_to:
+        lines.append(f"- **Reply-To:** {ctx.reply_to}")
+    if ctx.subject:
+        lines.append(f"- **Subject:** {ctx.subject}")
 
     extra = ctx.extra or {}
+    email_analysis = extra.get("email_analysis")
+    if email_analysis:
+        lines.append(
+            f"- **Verdetto email:** {email_analysis.get('verdict', 'N/D')} "
+            f"(criticità {email_analysis.get('criticality', 0)}/100)"
+        )
+        auth = email_analysis.get("auth") or {}
+        lines.append(
+            f"- **Auth:** SPF={auth.get('spf', 'N/D')}, "
+            f"DKIM={auth.get('dkim', 'N/D')}, DMARC={auth.get('dmarc', 'N/D')}"
+        )
     if extra.get("severity_text"):
         lines.append(f"- **Severità:** {extra['severity_text']}")
     if extra.get("mitre_techniques"):

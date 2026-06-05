@@ -14,7 +14,7 @@ from decoder_siem.report import print_summary, write_json_report, write_markdown
 
 load_dotenv()
 
-INPUT_EXTENSIONS = {".json", ".log", ".txt", ".cef"}
+INPUT_EXTENSIONS = {".json", ".log", ".txt", ".cef", ".eml"}
 
 
 app = typer.Typer(
