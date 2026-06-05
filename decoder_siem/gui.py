@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import inspect
+from typing import Any
+
 from dotenv import load_dotenv
 
 from decoder_siem.alert_guidance import alert_guidance_to_markdown
@@ -43,7 +46,25 @@ GUI_CSS = """
 .footer-copyright a:hover {
   text-decoration: underline;
 }
+footer {
+  display: none !important;
+}
 """
+
+
+def _launch_kwargs(app: Any) -> dict[str, Any]:
+    """Build launch kwargs that hide Gradio's default footer across versions."""
+    kwargs: dict[str, Any] = {"server_name": "127.0.0.1"}
+    params = inspect.signature(app.launch).parameters
+    if "footer_links" in params:
+        kwargs["footer_links"] = []
+    elif "show_api" in params:
+        kwargs["show_api"] = False
+    return kwargs
+
+
+def _launch_app(app: Any) -> None:
+    app.launch(**_launch_kwargs(app))
 
 
 def run_analysis(text: str) -> tuple[str, str, list[list[str]], str, str]:
@@ -187,7 +208,7 @@ def main() -> None:
             ],
         )
 
-    app.launch(server_name="127.0.0.1")
+    _launch_app(app)
 
 
 if __name__ == "__main__":

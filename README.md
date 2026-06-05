@@ -60,6 +60,8 @@ Flusso:
 5. Sotto: tabella con colonne VT, AbuseIPDB, OTX, URLhaus e link OSINT
 6. Premi **Pulisci** per svuotare tutto e inserire un nuovo alert
 
+Il footer predefinito Gradio («Use via API», «Built with Gradio») è disabilitato; in basso resta solo il copyright del progetto.
+
 Senza chiavi API l'estrazione funziona comunque; gli IOC pubblici compaiono come «non verificato».
 
 ### Solo estrazione (senza API)
