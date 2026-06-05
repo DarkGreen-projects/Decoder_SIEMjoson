@@ -6,6 +6,16 @@ from decoder_siem.analyzers.email_scorer import score_email
 from decoder_siem.extractors.generic import GenericExtractor
 from decoder_siem.extractors.patterns import is_private_ip, normalize_domain, normalize_ip
 from decoder_siem.models import Artifact, ArtifactScope, ArtifactType
+
+MAX_BODY_IOCS = 15
+_BODY_IOC_TYPES = {
+    ArtifactType.IP,
+    ArtifactType.DOMAIN,
+    ArtifactType.URL,
+    ArtifactType.HASH_SHA256,
+    ArtifactType.HASH_SHA1,
+    ArtifactType.HASH_MD5,
+}
 from decoder_siem.parsers.email import ParsedEmail, parsed_email_from_dict
 
 
@@ -66,25 +76,11 @@ class EmailHeaderExtractor:
                     )
                 )
 
-        for indicator in analysis.indicators:
-            artifacts.append(
-                Artifact(
-                    type=ArtifactType.OTHER,
-                    value=indicator,
-                    normalized_value=indicator.lower(),
-                    provenance=["email.analysis"],
-                    context={
-                        "verdict": analysis.verdict.value,
-                        "criticality": analysis.criticality,
-                    },
-                )
-            )
-
         if parsed.body_text:
             generic = GenericExtractor()
-            artifacts.extend(
-                generic.extract({"body": parsed.body_text}, "email.body")
-            )
+            body_arts = generic.extract({"body": parsed.body_text}, "email.body")
+            body_iocs = [a for a in body_arts if a.type in _BODY_IOC_TYPES]
+            artifacts.extend(body_iocs[:MAX_BODY_IOCS])
 
         return artifacts
 

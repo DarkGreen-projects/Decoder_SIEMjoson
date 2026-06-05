@@ -103,8 +103,13 @@ def _context_from_fortigate(ctx_data: dict) -> IncidentContext:
 def _extract_from_document(
     doc: LoadedDocument,
 ) -> tuple[list, IncidentContext, dict | None]:
-    generic = GenericExtractor()
-    artifacts = generic.extract(doc.data, "root")
+    # Email: skip generic walk on the parsed header dict — it regex-scans every
+    # header string and explodes IOC count (hundreds of domains/URLs → slow OSINT).
+    if doc.format == "email":
+        artifacts: list = []
+    else:
+        generic = GenericExtractor()
+        artifacts = generic.extract(doc.data, "root")
 
     context = IncidentContext(vendor=doc.vendor, log_format=doc.format)
 
@@ -236,12 +241,13 @@ def _apply_enrichment(
 
     enrichers = _build_enricher_chain(config, cache_dir)
     vt_in_chain = any(e.name == "virustotal" for e in enrichers)
+    enrichable = _enrichable_for_report(report)
 
     closable: list[VirusTotalEnricher] = [
         e for e in enrichers if isinstance(e, VirusTotalEnricher)
     ]
     try:
-        for ar in report.enrichable_artifacts:
+        for ar in enrichable:
             for enricher in enrichers:
                 if enricher.supports(ar.artifact):
                     ar.enrichments.append(enricher.enrich(ar.artifact))
@@ -267,6 +273,33 @@ def _apply_enrichment(
             enricher.close()
 
     return report
+
+
+EMAIL_ENRICHMENT_CAP = 20
+
+
+def _enrichable_for_report(report: IncidentReport) -> list[ArtifactReport]:
+    """Return enrichable artifacts, with a cap for email to avoid OSINT storms."""
+    all_enrichable = report.enrichable_artifacts
+    if report.context.vendor != "EmailHeaders":
+        return all_enrichable
+    if len(all_enrichable) <= EMAIL_ENRICHMENT_CAP:
+        return all_enrichable
+
+    def priority(ar: ArtifactReport) -> int:
+        prov = ar.artifact.provenance
+        if ar.artifact.type == ArtifactType.IP:
+            return 0
+        if any(p.startswith("email.header") for p in prov):
+            return 1
+        if ar.artifact.type == ArtifactType.URL:
+            return 2
+        if ar.artifact.type == ArtifactType.DOMAIN:
+            return 3
+        return 4
+
+    ranked = sorted(all_enrichable, key=priority)
+    return ranked[:EMAIL_ENRICHMENT_CAP]
 
 
 def _artifact_supports_vt(artifact: Artifact) -> bool:
