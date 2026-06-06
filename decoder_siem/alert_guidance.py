@@ -547,6 +547,39 @@ def _email_guidance(
     return ("Email — Safe", desc, focus, key_facts, actions)
 
 
+def _raw_ioc_guidance(
+    ctx: IncidentContext, report: IncidentReport, facts: ReportFacts
+) -> tuple[str, str, list[str], list[str], list[str]]:
+    malicious = _count_malicious(report)
+    public_ips = [
+        ar.artifact.value
+        for ar in report.artifacts
+        if ar.artifact.type == ArtifactType.IP
+        and ar.artifact.scope != ArtifactScope.INTERNAL
+    ]
+    desc = (
+        f"Analisi diretta di **{len(report.artifacts)}** IOC forniti manualmente "
+        "(IP, hash, URL o dominio). Ogni elemento è stato arricchito con le stesse "
+        "fonti OSINT usate per gli alert completi."
+    )
+    focus = [
+        f"IOC VT malevoli: **{malicious}** (rosso {COLOR_MALICIOUS})",
+        f"IP pubblici: {_fmt_list(public_ips)}",
+        f"Hash analizzati: {_fmt_list(facts.hashes)}",
+        f"Domini/URL: {_fmt_list(facts.domains + facts.urls)}",
+    ]
+    key_facts = [
+        f"IOC totali: {len(report.artifacts)}",
+        f"IP interni (non arricchiti VT): {_fmt_list(facts.internal_ips)}",
+    ]
+    actions = [
+        "Verificare il contesto operativo di ogni IOC prima di blocchi automatici",
+        "Correlare hash e IP con altri eventi SIEM o ticket recenti",
+        "Escalation se compaiono IOC malevoli senza spiegazione legittima nota",
+    ]
+    return ("IOC diretti", desc, focus, key_facts, actions)
+
+
 def _generic_guidance(
     ctx: IncidentContext, report: IncidentReport, facts: ReportFacts
 ) -> tuple[str, str, list[str], list[str], list[str]]:
@@ -579,6 +612,8 @@ def build_alert_guidance(
         return _cynet_guidance(ctx, report, facts)
     if vendor == "EmailHeaders":
         return _email_guidance(ctx, report, facts)
+    if vendor == "RawIOC":
+        return _raw_ioc_guidance(ctx, report, facts)
     return _generic_guidance(ctx, report, facts)
 
 

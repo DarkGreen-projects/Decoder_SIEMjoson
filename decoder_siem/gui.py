@@ -141,14 +141,15 @@ def main() -> None:
     with gr.Blocks(title="Decoder SIEM", theme=gr.themes.Soft(), css=GUI_CSS) as app:
         gr.Markdown(
             "# Decoder SIEM\n"
-            "Incolla JSON (Cynet, Microsoft Defender), log CEF/syslog (FortiGate) "
-            "o **header email** (Mostra originale), poi premi **Analizza**."
+            "Incolla JSON (Cynet, Microsoft Defender), log CEF/syslog (FortiGate), "
+            "**header email** (Mostra originale) oppure **IOC diretti** "
+            "(IP, hash, URL, dominio — separati da spazio o virgola), poi premi **Analizza**."
         )
 
         with gr.Row():
             text_input = gr.Textbox(
                 label="Testo da analizzare",
-                placeholder='{"Cynet": {...}} | CEF:0|Fortinet|... | From: ...\\nReceived: ...',
+                placeholder='{"Cynet": {...}} | CEF:0|Fortinet|... | 1.2.3.4 | abc...64 def...64',
                 lines=14,
                 max_lines=200,
                 scale=4,

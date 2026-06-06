@@ -18,6 +18,7 @@ from decoder_siem.parsers.email import (
     parse_email_message,
     parsed_email_to_dict,
 )
+from decoder_siem.parsers.ioc_list import looks_like_ioc_list, parse_ioc_list
 from decoder_siem.parsers.normalize import (
     looks_like_cef,
     looks_like_email_headers,
@@ -29,7 +30,7 @@ from decoder_siem.parsers.normalize import (
 CEF_WRAPPER_KEYS = ("message", "raw", "log", "event", "cef", "syslog")
 
 
-DocumentFormat = Literal["json", "cef", "email"]
+DocumentFormat = Literal["json", "cef", "email", "ioc"]
 
 
 @dataclass
@@ -177,11 +178,17 @@ def load_text(text: str, *, source_hint: str | None = None) -> LoadedDocument:
             raw_event=block,
         )
 
+    if looks_like_ioc_list(content):
+        return parse_ioc_list(content)
+
     label = source_hint or "input"
     raise ValueError(
         f"Formato non riconosciuto in {label}. "
         "Incolla un JSON che inizia con { (es. {\"MicrosoftGraph\":...}), "
-        "una riga syslog con CEF:, oppure header email (From:, Received:, ...). "
+        "una riga syslog con CEF:, header email (From:, Received:, ...), "
+        "oppure uno o più IOC diretti (IP, hash SHA256/SHA1/MD5, URL, dominio) "
+        "separati da spazio, virgola o punto e virgola "
+        "(es. 1.2.3.4 oppure abc...64, def...64). "
         "Evita testo prima/dopo il JSON e virgolette esterne."
     )
 

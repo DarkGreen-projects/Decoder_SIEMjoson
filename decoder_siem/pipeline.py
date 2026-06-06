@@ -36,6 +36,7 @@ from decoder_siem.models import (
     IncidentContext,
     IncidentReport,
 )
+from decoder_siem.parsers.ioc_list import artifacts_from_ioc_document
 from decoder_siem.parsers.loader import LoadedDocument, load_document, load_text
 
 
@@ -110,6 +111,16 @@ def _context_from_fortigate(ctx_data: dict) -> IncidentContext:
 def _extract_from_document(
     doc: LoadedDocument,
 ) -> tuple[list, IncidentContext, dict | None]:
+    if doc.format == "ioc":
+        artifacts = artifacts_from_ioc_document(doc.data)
+        context = IncidentContext(
+            vendor="RawIOC",
+            log_format="ioc",
+            incident_name="Analisi IOC diretta",
+        )
+        _ensure_artifact_limit(artifacts)
+        return artifacts, context, doc.raw_event
+
     # Email: skip generic walk on the parsed header dict — it regex-scans every
     # header string and explodes IOC count (hundreds of domains/URLs → slow OSINT).
     if doc.format == "email":
