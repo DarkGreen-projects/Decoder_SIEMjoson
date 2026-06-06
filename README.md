@@ -1,5 +1,7 @@
 # Decoder SIEM
 
+**[Wiki completa del progetto](docs/wiki/Home.md)** — installazione da zero su Windows, guide GUI/CLI, formati, OSINT e troubleshooting.
+
 Strumento CLI e GUI in Python per analizzare incidenti SIEM e indicatori di compromissione (IOC):
 
 - **JSON** (Cynet, Microsoft Defender)
@@ -14,17 +16,31 @@ Estrae IOC e metadati, con arricchimento opzionale tramite **VirusTotal**, **Abu
 - Python 3.11+
 - Chiavi API opzionali per l'arricchimento (l'estrazione funziona senza)
 
+> **Windows senza Python?** Segui la guida passo-passo: [Installazione Windows da zero](docs/wiki/Installazione-Windows-da-zero.md)
+
 ## Installazione
 
-```bash
-cd /workspace
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+### Linux / macOS
 
-# Con interfaccia grafica (Gradio)
+```bash
+git clone https://github.com/DarkGreen-projects/Decoder_SIEMjoson.git
+cd Decoder_SIEMjoson
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[gui]"
 ```
+
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/DarkGreen-projects/Decoder_SIEMjoson.git
+cd Decoder_SIEMjoson
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ".[gui]"
+```
+
+Vedi [wiki installazione Windows](docs/wiki/Installazione-Windows-da-zero.md) per PC senza Git/Python.
 
 Configura le variabili d'ambiente:
 
@@ -255,3 +271,16 @@ La classificazione è **euristica locale** (non ML): non sostituisce sandbox o a
 ## Sicurezza input
 
 Validazione dimensionale e sanitizzazione su input incollati e file caricati: limiti su caratteri, profondità JSON, numero massimo di IOC estratti e valori artefatto. Protegge da payload eccessivi, JSON annidati e contenuti non sicuri in output Markdown.
+
+## Documentazione (Wiki)
+
+| Guida | Descrizione |
+|-------|-------------|
+| [Home Wiki](docs/wiki/Home.md) | Indice completo |
+| [Windows da zero](docs/wiki/Installazione-Windows-da-zero.md) | Installazione da PC vuoto |
+| [Guida GUI](docs/wiki/Guida-GUI.md) | Interfaccia grafica |
+| [Guida CLI](docs/wiki/Guida-CLI.md) | Riga di comando |
+| [Chiavi API](docs/wiki/Configurazione-chiavi-API.md) | Setup OSINT |
+| [Formati](docs/wiki/Formati-supportati.md) | Input supportati |
+| [Email adattiva](docs/wiki/Analisi-email-adattiva.md) | Header, corpo, allegati |
+| [Troubleshooting](docs/wiki/Risoluzione-problemi.md) | Errori comuni |
