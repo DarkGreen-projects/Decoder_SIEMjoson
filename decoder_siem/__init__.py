@@ -1,3 +1,3 @@
-"""Decoder SIEM: estrazione IOC da incidenti JSON e arricchimento OSINT."""
+"""Decoder SIEM: IOC da incidenti SIEM, email adattiva e arricchimento OSINT."""
 
 __version__ = "0.1.0"

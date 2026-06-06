@@ -4,7 +4,7 @@ Strumento CLI e GUI in Python per analizzare incidenti SIEM e indicatori di comp
 
 - **JSON** (Cynet, Microsoft Defender)
 - **CEF/syslog** (FortiGate)
-- **Header email** (phishing/spam)
+- **Email adattiva** — header, corpo plain/HTML, link e allegati (`.eml` o incolla)
 - **IOC diretti** — singolo IP, hash, URL o dominio, oppure più valori separati da spazio, virgola o `;`
 
 Estrae IOC e metadati, con arricchimento opzionale tramite **VirusTotal**, **AbuseIPDB**, **AlienVault OTX** e **URLhaus** (abuse.ch). Le risposte OSINT per hash, URL e domini sono memorizzate in **cache SQLite** (TTL 24 ore); gli IP vengono sempre interrogati live.
@@ -62,7 +62,7 @@ Flusso:
 2. Incolla nel campo testo uno dei formati supportati:
    - JSON (Cynet, Microsoft Defender)
    - log CEF/syslog (FortiGate)
-   - header email («Mostra originale»)
+   - email: header («Mostra originale»), file `.eml` completo o MIME con corpo/allegati
    - **IOC diretti** (es. `8.8.8.8`, un hash SHA256, oppure `8.8.8.8, abc...64 def...64`)
 3. Premi **Analizza** — vengono chiamate tutte le fonti per cui è presente la chiave
 4. A sinistra: **Riepilogo incidente**; a destra: **Elementi analizzati** con colori:
@@ -122,7 +122,7 @@ decoder-siem analyze ./alerts/ --recursive
 | Microsoft Defender / Graph | `.json` (chiave `MicrosoftGraph`) | `MicrosoftDefender` |
 | FortiGate syslog+CEF | `.cef`, `.log`, `.txt` | `FortiGate` |
 | CEF in wrapper JSON | `.json` (campo `message`, `raw`, `log`) | `FortiGate` |
-| Header email / messaggio RFC 5322 | incollati in GUI, `.eml`, `.txt` | `EmailHeaders` |
+| Email adattiva (header, corpo, allegati MIME) | incollati in GUI, `.eml`, `.txt` | `EmailHeaders` |
 | IOC diretti (IP, hash, URL, dominio) | incollati in GUI, `.txt` | `RawIOC` |
 
 ### IOC diretti
@@ -179,6 +179,18 @@ Dal CEF FortiGate:
 - **CEF header**: vendor, product, signature, event name, severity
 - **Extension**: `deviceExternalId`, `FTNTFGTlogdesc`, `msg`, IP/URL (se presenti)
 
+Dalle email (analisi adattiva al contenuto fornito):
+
+- **Header**: mittente, Reply-To, Return-Path, SPF/DKIM/DMARC, catena `Received`
+- **Corpo** (se presente): testo plain/HTML, URL, linguaggio phishing, link mismatch
+- **Allegati** (se presenti in `.eml`): nome file, tipo MIME, hash SHA256 per VT/OSINT
+- **Verdetto**: phishing, spam, safe o non classificabile con criticità 0–100
+
+```bash
+# Analisi file .eml completo (corpo HTML + allegati)
+decoder-siem analyze ./sospetto.eml -o ./out/email_report.json --markdown ./out/email_report.md
+```
+
 ## Output
 
 - **JSON**: struttura completa con provenienza di ogni artefatto e risultati enricher
@@ -219,13 +231,17 @@ Domini e host di provider legittimi noti (Google, Microsoft, CDN, ecc.) sono eti
 
 ## Analisi email adattiva
 
-Incolla gli header da «Mostra originale» (Outlook/Gmail), un file `.eml` completo o MIME multipart incollato. L'analisi si adatta al contenuto disponibile:
+L'analisi email **non si limita agli header**: il programma rileva automaticamente quanto contenuto è disponibile nell'input e approfondisce di conseguenza.
+
+Incolla gli header da «Mostra originale» (Outlook/Gmail), un file `.eml` completo o MIME multipart incollato. L'analisi si adatta al contenuto disponibile (`content_profile`):
 
 | Input fornito | Analisi eseguita |
 |---------------|------------------|
 | Solo header | SPF/DKIM/DMARC, identità, Received, subject |
 | Header + corpo | Header + testo plain/HTML, link, linguaggio phishing |
 | `.eml` con allegati | Header + corpo + hash SHA256 allegati (VT/OSINT) |
+
+Profili rilevati automaticamente: `headers_only`, `headers_body`, `full_mime`.
 
 Il tool:
 
