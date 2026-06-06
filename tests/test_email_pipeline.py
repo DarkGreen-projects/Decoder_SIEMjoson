@@ -24,3 +24,14 @@ def test_pipeline_clean_headers():
     report = build_report_from_text(text.read_text(encoding="utf-8"), enrich=False)
     analysis = report.context.extra.get("email_analysis")
     assert analysis["verdict"] == EmailVerdict.SAFE.value
+
+
+def test_pipeline_eml_attachment_hash_artifact():
+    text = Path(__file__).parent / "fixtures" / "email_with_attachment.eml"
+    report = build_report_from_text(text.read_text(encoding="utf-8"), enrich=False)
+    analysis = report.context.extra.get("email_analysis")
+    assert analysis["attachments_count"] == 1
+    hashes = [
+        a for a in report.artifacts if a.artifact.type.value == "hash_sha256"
+    ]
+    assert any("email.attachment" in (a.artifact.provenance or [""])[0] for a in hashes)

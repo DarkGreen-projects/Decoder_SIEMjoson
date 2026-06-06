@@ -4,10 +4,12 @@ from typing import Any
 
 from decoder_siem.analyzers.email_scorer import score_email
 from decoder_siem.extractors.generic import GenericExtractor
-from decoder_siem.extractors.patterns import is_private_ip, normalize_domain, normalize_ip
+from decoder_siem.extractors.patterns import is_private_ip, normalize_domain, normalize_hash, normalize_ip
 from decoder_siem.models import Artifact, ArtifactScope, ArtifactType
+from decoder_siem.parsers.email import ParsedEmail, parsed_email_from_dict
 
 MAX_BODY_IOCS = 15
+MAX_BODY_IOCS_FULL_MIME = 30
 _BODY_IOC_TYPES = {
     ArtifactType.IP,
     ArtifactType.DOMAIN,
@@ -16,13 +18,11 @@ _BODY_IOC_TYPES = {
     ArtifactType.HASH_SHA1,
     ArtifactType.HASH_MD5,
 }
-from decoder_siem.parsers.email import ParsedEmail, parsed_email_from_dict
 
 
 class EmailHeaderExtractor:
     def extract(self, block: dict[str, Any]) -> list[Artifact]:
         parsed = parsed_email_from_dict(block)
-        analysis = score_email(parsed)
         artifacts: list[Artifact] = []
 
         def add_email(addr_data: dict[str, Any] | None, role: str) -> None:
@@ -76,11 +76,59 @@ class EmailHeaderExtractor:
                     )
                 )
 
+        body_parts: list[str] = []
         if parsed.body_text:
+            body_parts.append(parsed.body_text)
+        if parsed.body_html:
+            body_parts.append(parsed.body_html)
+        combined_body = "\n".join(body_parts).strip()
+        if combined_body:
             generic = GenericExtractor()
-            body_arts = generic.extract({"body": parsed.body_text}, "email.body")
+            body_arts = generic.extract({"body": combined_body}, "email.body")
             body_iocs = [a for a in body_arts if a.type in _BODY_IOC_TYPES]
-            artifacts.extend(body_iocs[:MAX_BODY_IOCS])
+            cap = (
+                MAX_BODY_IOCS_FULL_MIME
+                if parsed.content_profile == "full_mime"
+                else MAX_BODY_IOCS
+            )
+            artifacts.extend(body_iocs[:cap])
+
+        seen_urls: set[str] = set()
+        for link in parsed.body_links:
+            href = link.href.strip()
+            if not href or href in seen_urls:
+                continue
+            if not href.lower().startswith(("http://", "https://")):
+                continue
+            seen_urls.add(href)
+            artifacts.append(
+                Artifact(
+                    type=ArtifactType.URL,
+                    value=href,
+                    normalized_value=href,
+                    provenance=["email.body.link"],
+                    context={"display_text": link.display_text[:80]},
+                )
+            )
+
+        seen_hashes: set[str] = set()
+        for att in parsed.attachments:
+            if not att.sha256 or att.sha256 in seen_hashes:
+                continue
+            seen_hashes.add(att.sha256)
+            artifacts.append(
+                Artifact(
+                    type=ArtifactType.HASH_SHA256,
+                    value=att.sha256,
+                    normalized_value=normalize_hash(att.sha256),
+                    provenance=[f"email.attachment.{att.filename}"],
+                    context={
+                        "filename": att.filename,
+                        "content_type": att.content_type,
+                        "size_bytes": att.size_bytes,
+                    },
+                )
+            )
 
         return artifacts
 
@@ -102,5 +150,7 @@ class EmailHeaderExtractor:
                 "email_analysis": analysis.model_dump(),
                 "hop_count": len(parsed.received_hops),
                 "auth": analysis.auth,
+                "content_profile": parsed.content_profile,
+                "attachments_count": len(parsed.attachments),
             },
         }

@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+import hashlib
+import html
 import re
 from dataclasses import dataclass, field
 from email import policy
 from email.parser import BytesParser, Parser
 from email.utils import parseaddr
+from html.parser import HTMLParser
 from typing import Any
+from urllib.parse import urlparse
+
+from decoder_siem.input_guard import (
+    max_email_attachment_bytes,
+    max_email_attachments,
+    max_string_scan_len,
+)
 
 IPV4_IN_TEXT = re.compile(
     r"\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}"
@@ -22,6 +32,11 @@ RECEIVED_BY_RE = re.compile(
 RECEIVED_IP_RE = re.compile(
     r"\[([0-9a-fA-F:.]+)\]",
 )
+_HREF_RE = re.compile(
+    r"""href\s*=\s*["']([^"']+)["']""",
+    re.IGNORECASE,
+)
+_TAG_RE = re.compile(r"<[^>]+>")
 
 
 @dataclass
@@ -53,6 +68,21 @@ class AuthResults:
 
 
 @dataclass
+class ParsedAttachment:
+    filename: str
+    content_type: str
+    size_bytes: int
+    sha256: str
+    is_inline: bool = False
+
+
+@dataclass
+class EmailLink:
+    display_text: str
+    href: str
+
+
+@dataclass
 class ParsedEmail:
     headers: dict[str, list[str]] = field(default_factory=dict)
     received_hops: list[ReceivedHop] = field(default_factory=list)
@@ -66,8 +96,76 @@ class ParsedEmail:
     message_id: str | None = None
     date: str | None = None
     body_text: str | None = None
+    body_html: str | None = None
+    attachments: list[ParsedAttachment] = field(default_factory=list)
+    body_links: list[EmailLink] = field(default_factory=list)
+    content_profile: str = "headers_only"
     precedence: str | None = None
     list_unsubscribe: bool = False
+
+
+class _LinkHTMLParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.links: list[EmailLink] = []
+        self._current_href: str | None = None
+        self._current_text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        href = None
+        for key, value in attrs:
+            if key.lower() == "href" and value:
+                href = value.strip()
+                break
+        if href:
+            self._current_href = href
+            self._current_text = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() != "a" or not self._current_href:
+            return
+        display = " ".join(self._current_text).strip()
+        self.links.append(EmailLink(display_text=display, href=self._current_href))
+        self._current_href = None
+        self._current_text = []
+
+    def handle_data(self, data: str) -> None:
+        if self._current_href is not None:
+            self._current_text.append(data)
+
+
+def _truncate_body(text: str | None) -> str | None:
+    if not text:
+        return None
+    limit = max_string_scan_len()
+    if len(text) > limit:
+        return text[:limit]
+    return text
+
+
+def _html_to_text(raw_html: str) -> str:
+    text = _TAG_RE.sub(" ", raw_html)
+    return html.unescape(re.sub(r"\s+", " ", text)).strip()
+
+
+def extract_links_from_html(raw_html: str) -> list[EmailLink]:
+    parser = _LinkHTMLParser()
+    try:
+        parser.feed(raw_html)
+        parser.close()
+    except Exception:  # noqa: BLE001
+        for match in _HREF_RE.finditer(raw_html):
+            parser.links.append(EmailLink(display_text="", href=match.group(1).strip()))
+    seen: set[tuple[str, str]] = set()
+    unique: list[EmailLink] = []
+    for link in parser.links:
+        key = (link.display_text, link.href)
+        if key not in seen and link.href:
+            seen.add(key)
+            unique.append(link)
+    return unique
 
 
 def _parse_address(raw: str | None) -> ParsedAddress | None:
@@ -82,22 +180,6 @@ def _parse_address(raw: str | None) -> ParsedAddress | None:
         display_name=display.strip(),
         email=email,
     )
-
-
-def _header_values(msg: Any, name: str) -> list[str]:
-    values: list[str] = []
-    if msg is None:
-        return values
-    raw = msg.get_all(name) if hasattr(msg, "get_all") else None
-    if not raw:
-        single = msg.get(name) if hasattr(msg, "get") else None
-        if single:
-            raw = [single]
-    if raw:
-        for item in raw:
-            if item:
-                values.append(str(item).strip())
-    return values
 
 
 def _collect_headers(msg: Any) -> dict[str, list[str]]:
@@ -167,27 +249,106 @@ def _extract_auth(headers: dict[str, list[str]]) -> AuthResults:
     return auth
 
 
-def _extract_body_text(msg: Any) -> str | None:
-    if msg is None:
-        return None
+def _part_payload_bytes(part: Any) -> bytes | None:
     try:
-        if msg.is_multipart():
-            parts: list[str] = []
-            for part in msg.walk():
-                if part.get_content_disposition() == "attachment":
-                    continue
-                ctype = part.get_content_type()
-                if ctype == "text/plain":
-                    payload = part.get_content()
-                    if isinstance(payload, str) and payload.strip():
-                        parts.append(payload)
-            return "\n".join(parts) if parts else None
-        payload = msg.get_content()
-        if isinstance(payload, str):
+        payload = part.get_payload(decode=True)
+        if isinstance(payload, bytes):
             return payload
+        if isinstance(payload, str):
+            return payload.encode("utf-8", errors="replace")
     except Exception:  # noqa: BLE001
         return None
     return None
+
+
+def _extract_body_parts(msg: Any) -> tuple[str | None, str | None]:
+    if msg is None:
+        return None, None
+    plain_parts: list[str] = []
+    html_parts: list[str] = []
+    try:
+        if msg.is_multipart():
+            for part in msg.walk():
+                disposition = (part.get_content_disposition() or "").lower()
+                if disposition == "attachment":
+                    continue
+                ctype = part.get_content_type()
+                if ctype.startswith("multipart/"):
+                    continue
+                try:
+                    payload = part.get_content()
+                except Exception:  # noqa: BLE001
+                    continue
+                if not isinstance(payload, str) or not payload.strip():
+                    continue
+                if ctype == "text/plain":
+                    plain_parts.append(payload)
+                elif ctype == "text/html":
+                    html_parts.append(payload)
+        else:
+            ctype = msg.get_content_type()
+            payload = msg.get_content()
+            if isinstance(payload, str) and payload.strip():
+                if ctype == "text/html":
+                    html_parts.append(payload)
+                else:
+                    plain_parts.append(payload)
+    except Exception:  # noqa: BLE001
+        return None, None
+
+    plain = "\n".join(plain_parts).strip() if plain_parts else None
+    html_body = "\n".join(html_parts).strip() if html_parts else None
+    if not plain and html_body:
+        plain = _html_to_text(html_body)
+    return _truncate_body(plain), _truncate_body(html_body)
+
+
+def _extract_attachments(msg: Any) -> list[ParsedAttachment]:
+    if msg is None or not hasattr(msg, "walk"):
+        return []
+    attachments: list[ParsedAttachment] = []
+    max_count = max_email_attachments()
+    max_bytes = max_email_attachment_bytes()
+    try:
+        for part in msg.walk():
+            if len(attachments) >= max_count:
+                break
+            disposition = (part.get_content_disposition() or "").lower()
+            filename = part.get_filename()
+            content_type = part.get_content_type()
+            is_inline = disposition == "inline"
+            is_attachment = disposition == "attachment" or bool(filename)
+            if not is_attachment:
+                continue
+            raw = _part_payload_bytes(part)
+            if raw is None:
+                continue
+            if len(raw) > max_bytes:
+                continue
+            name = filename or f"unnamed-{len(attachments) + 1}"
+            attachments.append(
+                ParsedAttachment(
+                    filename=name,
+                    content_type=content_type,
+                    size_bytes=len(raw),
+                    sha256=hashlib.sha256(raw).hexdigest().upper(),
+                    is_inline=is_inline,
+                )
+            )
+    except Exception:  # noqa: BLE001
+        return attachments
+    return attachments
+
+
+def _detect_content_profile(parsed: ParsedEmail) -> str:
+    has_body = bool(parsed.body_text and parsed.body_text.strip())
+    has_html = bool(parsed.body_html and parsed.body_html.strip())
+    has_attachments = bool(parsed.attachments)
+    if has_attachments or (has_body and has_html):
+        return "full_mime"
+    if has_body or has_html:
+        return "headers_body"
+    return "headers_only"
 
 
 def _populate_from_message(parsed: ParsedEmail, msg: Any) -> ParsedEmail:
@@ -207,7 +368,11 @@ def _populate_from_message(parsed: ParsedEmail, msg: Any) -> ParsedEmail:
     parsed.date = _first(headers, "date")
     parsed.precedence = _first(headers, "precedence")
     parsed.list_unsubscribe = bool(headers.get("list-unsubscribe"))
-    parsed.body_text = _extract_body_text(msg)
+    parsed.body_text, parsed.body_html = _extract_body_parts(msg)
+    parsed.attachments = _extract_attachments(msg)
+    if parsed.body_html:
+        parsed.body_links = extract_links_from_html(parsed.body_html)
+    parsed.content_profile = _detect_content_profile(parsed)
     return parsed
 
 
@@ -216,6 +381,19 @@ def _first(headers: dict[str, list[str]], key: str) -> str | None:
     if values:
         return values[0]
     return None
+
+
+def looks_like_mime_message(text: str) -> bool:
+    lower = text.lower()
+    if "content-type: multipart/" in lower:
+        return True
+    if "boundary=" in lower and "mime-version:" in lower:
+        return True
+    if re.search(r"----=_", text):
+        return True
+    if "content-transfer-encoding: base64" in lower:
+        return True
+    return False
 
 
 def parse_email_headers(text: str) -> ParsedEmail:
@@ -260,6 +438,22 @@ def parsed_email_to_dict(parsed: ParsedEmail) -> dict[str, Any]:
         "message_id": parsed.message_id,
         "date": parsed.date,
         "body_text": parsed.body_text,
+        "body_html": parsed.body_html,
+        "body_links": [
+            {"display_text": link.display_text, "href": link.href}
+            for link in parsed.body_links
+        ],
+        "attachments": [
+            {
+                "filename": att.filename,
+                "content_type": att.content_type,
+                "size_bytes": att.size_bytes,
+                "sha256": att.sha256,
+                "is_inline": att.is_inline,
+            }
+            for att in parsed.attachments
+        ],
+        "content_profile": parsed.content_profile,
         "precedence": parsed.precedence,
         "list_unsubscribe": parsed.list_unsubscribe,
     }
@@ -294,9 +488,32 @@ def parsed_email_from_dict(data: dict[str, Any]) -> ParsedEmail:
         message_id=data.get("message_id"),
         date=data.get("date"),
         body_text=data.get("body_text"),
+        body_html=data.get("body_html"),
+        body_links=[
+            EmailLink(
+                display_text=link.get("display_text", ""),
+                href=link.get("href", ""),
+            )
+            for link in data.get("body_links") or []
+        ],
+        attachments=[
+            ParsedAttachment(
+                filename=att.get("filename", ""),
+                content_type=att.get("content_type", ""),
+                size_bytes=int(att.get("size_bytes", 0)),
+                sha256=att.get("sha256", ""),
+                is_inline=bool(att.get("is_inline")),
+            )
+            for att in data.get("attachments") or []
+        ],
+        content_profile=data.get("content_profile") or "headers_only",
         precedence=data.get("precedence"),
         list_unsubscribe=bool(data.get("list_unsubscribe")),
     )
+    if not parsed.body_links and parsed.body_html:
+        parsed.body_links = extract_links_from_html(parsed.body_html)
+    if parsed.content_profile == "headers_only":
+        parsed.content_profile = _detect_content_profile(parsed)
     return parsed
 
 
@@ -322,3 +539,13 @@ def _addr_from_dict(data: dict[str, Any] | None) -> ParsedAddress | None:
         email=data.get("email", ""),
         domain=data.get("domain"),
     )
+
+
+def link_href_domain(href: str) -> str | None:
+    try:
+        parsed = urlparse(href.strip())
+    except ValueError:
+        return None
+    if parsed.hostname:
+        return parsed.hostname.lower()
+    return None

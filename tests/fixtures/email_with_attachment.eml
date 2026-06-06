@@ -1,0 +1,24 @@
+From: bad@evil.example
+To: victim@company.local
+Subject: Invoice attached
+Date: Mon, 2 Jun 2025 11:00:00 +0200
+Message-ID: <att001@evil.example>
+MIME-Version: 1.0
+Authentication-Results: mx.google.com;
+       spf=fail; dkim=none; dmarc=fail
+Received: from mail.evil.example (mail.evil.example [198.51.100.10])
+        by mx.google.com; Mon, 2 Jun 2025 10:59:55 +0200
+Content-Type: multipart/mixed; boundary="----=_bound_1"
+
+------=_bound_1
+Content-Type: text/plain; charset=utf-8
+
+See attached invoice.
+
+------=_bound_1
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="invoice.pdf.exe"
+Content-Transfer-Encoding: base64
+
+TVqQAAMAAAAEAAAA//8AALgAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+------=_bound_1--

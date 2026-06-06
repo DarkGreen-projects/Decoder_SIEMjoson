@@ -469,13 +469,22 @@ def _email_guidance(
     indicators = analysis.get("indicators") or []
     auth = analysis.get("auth") or {}
 
+    content_profile = analysis.get("content_profile") or extra.get("content_profile", "headers_only")
+    attachments_count = analysis.get("attachments_count") or extra.get("attachments_count", 0)
+    content_indicators = analysis.get("content_indicators") or []
+
     key_facts = [
         f"From: `{ctx.mail_from or 'N/D'}`",
         f"Reply-To: `{ctx.reply_to or 'N/D'}`",
         f"Subject: `{ctx.subject or 'N/D'}`",
         f"SPF/DKIM/DMARC: {auth.get('spf', 'N/D')}/{auth.get('dkim', 'N/D')}/{auth.get('dmarc', 'N/D')}",
         f"Hop Received: {extra.get('hop_count', 'N/D')}",
+        f"Ambito analisi: {content_profile}",
     ]
+    if attachments_count:
+        key_facts.append(f"Allegati analizzati: {attachments_count} (hash SHA256)")
+    if content_indicators:
+        key_facts.append(f"Segnali corpo/allegati: {_fmt_list(content_indicators, limit=3)}")
     if facts.malicious:
         key_facts.append(f"IOC OSINT malevoli: {_fmt_list(facts.malicious)}")
 
@@ -485,7 +494,7 @@ def _email_guidance(
             f"Indicatori: {', '.join(indicators[:4]) or 'allineamento identità / auth debole'}."
         )
         focus = [
-            "Verificare link e allegati nel corpo (non analizzati in profondità in v1)",
+            "Verificare link nel corpo HTML e hash allegati in tabella (VT/OSINT)",
             "Controllare mailbox destinatario: regole di inoltro sospette",
             f"Correlare IP mittente: {_fmt_list(facts.benign_public + facts.malicious)}",
             "Valutare blocco dominio mittente su gateway email",
@@ -530,10 +539,10 @@ def _email_guidance(
         ]
         return ("Email — Non classificabile", desc, focus, key_facts, actions)
 
+    scope = analysis.get("detail") or f"ambito: {content_profile}"
     desc = (
         f"Email classificata come **safe** (criticità **{criticality}/100**). "
-        "Nessun indicatore malevolo rilevante negli header; infrastrutture note "
-        "escluse da OSINT automatico."
+        f"{scope}; infrastrutture note escluse da OSINT automatico."
     )
     focus = [
         "Confermare coerenza mittente/contesto con l'utente se il messaggio è inatteso",

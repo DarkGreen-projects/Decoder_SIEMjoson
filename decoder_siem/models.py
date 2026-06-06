@@ -37,6 +37,10 @@ class EmailAnalysisResult(BaseModel):
     auth: dict[str, str] = Field(default_factory=dict)
     summary: str
     detail: str | None = None
+    content_profile: str = "headers_only"
+    body_analyzed: bool = False
+    attachments_count: int = 0
+    content_indicators: list[str] = Field(default_factory=list)
 
 
 class ArtifactScope(str, Enum):

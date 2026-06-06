@@ -57,6 +57,14 @@ def max_string_scan_len() -> int:
     return _env_int("DECODER_MAX_STRING_SCAN_LEN", 65536)
 
 
+def max_email_attachments() -> int:
+    return _env_int("DECODER_MAX_EMAIL_ATTACHMENTS", 20)
+
+
+def max_email_attachment_bytes() -> int:
+    return _env_int("DECODER_MAX_EMAIL_ATTACHMENT_BYTES", 5_000_000)
+
+
 def _reject_disallowed_control_chars(text: str) -> None:
     for ch in text:
         code = ord(ch)

@@ -1,0 +1,12 @@
+From: sender@company.local
+To: victim@company.local
+Subject: Meeting reminder
+Date: Mon, 2 Jun 2025 09:00:00 +0200
+Message-ID: <meet001@company.local>
+MIME-Version: 1.0
+Authentication-Results: mx.google.com;
+       spf=pass; dkim=pass; dmarc=pass
+Received: from mail.company.local (mail.company.local [10.0.0.5])
+        by mx.google.com; Mon, 2 Jun 2025 08:59:55 +0200
+
+Hello team, remember the meeting at 3pm today.

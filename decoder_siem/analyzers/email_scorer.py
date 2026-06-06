@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from decoder_siem.analyzers.email_content import analyze_email_content
 from decoder_siem.models import EmailAnalysisResult, EmailVerdict
 from decoder_siem.parsers.email import ParsedEmail, ParsedAddress
 
@@ -94,7 +95,21 @@ def _assess_header_quality(parsed: ParsedEmail) -> tuple[bool, list[str]]:
     return len(issues) > 0, issues
 
 
-def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
+def _analysis_scope_detail(parsed: ParsedEmail) -> str:
+    profile = parsed.content_profile
+    att_count = len(parsed.attachments)
+    if profile == "full_mime":
+        if att_count:
+            return (
+                f"Analisi: header + corpo (plain/HTML) + {att_count} allegati (hash SHA256)"
+            )
+        return "Analisi: header + corpo (plain/HTML)"
+    if profile == "headers_body":
+        return "Analisi: header + corpo (plain/HTML)"
+    return "Analisi: header"
+
+
+def _score_headers(parsed: ParsedEmail) -> tuple[int, int, int, list[str], dict[str, str]]:
     score = 0
     indicators: list[str] = []
     phishing_signals = 0
@@ -191,9 +206,27 @@ def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
         score = max(0, score - 25)
         indicators.append("SPF/DKIM/DMARC pass e identità allineate")
 
+    return score, phishing_signals, spam_signals, indicators, auth
+
+
+def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
+    score, phishing_signals, spam_signals, indicators, auth = _score_headers(parsed)
+
+    content_indicators: list[str] = []
+    if parsed.content_profile != "headers_only":
+        content = analyze_email_content(parsed)
+        score += content.score_delta
+        phishing_signals += content.phishing_signals
+        spam_signals += content.spam_signals
+        content_indicators = content.indicators
+        indicators.extend(content.indicators)
+
     criticality = min(100, score)
     unclassifiable, header_issues = _assess_header_quality(parsed)
 
+    from_domain = _domain(parsed.from_addr)
+    reply_domain = _domain(parsed.reply_to)
+    return_domain = _domain(parsed.return_path)
     identity_mismatch = bool(
         (from_domain and reply_domain and from_domain != reply_domain)
         or (from_domain and return_domain and from_domain != return_domain)
@@ -201,12 +234,21 @@ def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
     strong_phishing = phishing_signals >= 1 and (
         _auth_is_fail(parsed.auth.dmarc) or identity_mismatch
     )
+    body_phishing = any(
+        "phishing nel corpo" in ind.lower()
+        or "link mismatch" in ind.lower()
+        or "alto rischio" in ind.lower()
+        for ind in content_indicators
+    )
+    if body_phishing and phishing_signals >= 1:
+        strong_phishing = True
 
-    detail: str | None = None
+    scope_detail = _analysis_scope_detail(parsed)
+    detail: str | None = scope_detail
 
     if unclassifiable:
         verdict = EmailVerdict.UNCLASSIFIABLE
-        detail = "; ".join(header_issues)
+        detail = f"{scope_detail}; " + "; ".join(header_issues)
         indicators = header_issues + indicators
     elif criticality >= 55 and strong_phishing:
         verdict = EmailVerdict.PHISHING
@@ -216,7 +258,10 @@ def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
         verdict = EmailVerdict.SPAM
     else:
         verdict = EmailVerdict.SAFE
-        detail = "Nessun indicatore malevolo rilevante negli header analizzati"
+        detail = (
+            f"{scope_detail}; nessun indicatore malevolo rilevante "
+            "negli elementi analizzati"
+        )
 
     confidence = confidence_from_criticality(criticality)
     confidence_it = CONFIDENCE_LABEL_IT[confidence]
@@ -235,4 +280,8 @@ def score_email(parsed: ParsedEmail) -> EmailAnalysisResult:
         auth=auth,
         summary=summary,
         detail=detail,
+        content_profile=parsed.content_profile,
+        body_analyzed=parsed.content_profile != "headers_only",
+        attachments_count=len(parsed.attachments),
+        content_indicators=content_indicators,
     )

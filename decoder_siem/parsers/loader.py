@@ -14,6 +14,7 @@ from decoder_siem.input_guard import (
 from decoder_siem.parser import get_vendor_block, parse_nested_json_strings
 from decoder_siem.parsers.cef import is_fortigate_cef, parse_cef_line
 from decoder_siem.parsers.email import (
+    looks_like_mime_message,
     parse_email_headers,
     parse_email_message,
     parsed_email_to_dict,
@@ -164,9 +165,10 @@ def load_text(text: str, *, source_hint: str | None = None) -> LoadedDocument:
 
     is_eml = suffix == ".eml"
     if is_eml or looks_like_email_headers(content):
+        use_full_mime = is_eml or looks_like_mime_message(content)
         parsed = (
             parse_email_message(content)
-            if is_eml
+            if use_full_mime
             else parse_email_headers(content)
         )
         block = parsed_email_to_dict(parsed)

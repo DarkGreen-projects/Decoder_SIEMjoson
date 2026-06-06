@@ -533,12 +533,20 @@ def context_to_markdown(ctx: IncidentContext, *, artifact_count: int = 0) -> str
             f"- **Verdetto email:** {safe_md(str(email_analysis.get('verdict', 'N/D')))} "
             f"(criticità {email_analysis.get('criticality', 0)}/100)"
         )
+        profile = email_analysis.get("content_profile")
+        if profile:
+            lines.append(f"- **Ambito analisi email:** {safe_md(str(profile))}")
+        att_count = email_analysis.get("attachments_count", 0)
+        if att_count:
+            lines.append(f"- **Allegati analizzati:** {att_count}")
         auth = email_analysis.get("auth") or {}
         lines.append(
             f"- **Auth:** SPF={safe_md(str(auth.get('spf', 'N/D')))}, "
             f"DKIM={safe_md(str(auth.get('dkim', 'N/D')))}, "
             f"DMARC={safe_md(str(auth.get('dmarc', 'N/D')))}"
         )
+        if email_analysis.get("detail"):
+            lines.append(f"- **Dettaglio:** {safe_md(str(email_analysis.get('detail')))}")
     if extra.get("severity_text"):
         lines.append(f"- **Severità:** {safe_md(str(extra['severity_text']))}")
     if extra.get("mitre_techniques"):

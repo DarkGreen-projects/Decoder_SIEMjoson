@@ -142,7 +142,7 @@ def main() -> None:
         gr.Markdown(
             "# Decoder SIEM\n"
             "Incolla JSON (Cynet, Microsoft Defender), log CEF/syslog (FortiGate), "
-            "**header email** (Mostra originale) oppure **IOC diretti** "
+            "**header email** o file **.eml** completo (corpo HTML e allegati) oppure **IOC diretti** "
             "(IP, hash, URL, dominio — separati da spazio o virgola), poi premi **Analizza**."
         )
 

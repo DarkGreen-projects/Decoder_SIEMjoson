@@ -217,15 +217,24 @@ Negli alert XDR (es. Microsoft Defender), path e URL correlati a un hash già pr
 
 Domini e host di provider legittimi noti (Google, Microsoft, CDN, ecc.) sono etichettati come benigni: link VT disponibili senza chiamate API automatiche superflue.
 
-## Analisi header email
+## Analisi email adattiva
 
-Incolla gli header da «Mostra originale» (Outlook/Gmail) o un file `.eml`. Il tool:
+Incolla gli header da «Mostra originale» (Outlook/Gmail), un file `.eml` completo o MIME multipart incollato. L'analisi si adatta al contenuto disponibile:
+
+| Input fornito | Analisi eseguita |
+|---------------|------------------|
+| Solo header | SPF/DKIM/DMARC, identità, Received, subject |
+| Header + corpo | Header + testo plain/HTML, link, linguaggio phishing |
+| `.eml` con allegati | Header + corpo + hash SHA256 allegati (VT/OSINT) |
+
+Il tool:
 
 - Calcola **criticità** (0–100) e classifica: **phishing**, **spam**, **safe** o **non classificabile**
-- Analizza SPF/DKIM/DMARC, allineamento From/Reply-To/Return-Path, catena `Received`
-- Estrae IP e domini dagli header per arricchimento OSINT (con limite intelligente per evitare centinaia di lookup)
+- Rileva **link mismatch** HTML (testo visibile ≠ href), URL shortener e TLD sospetti
+- Segnala allegati pericolosi (`.exe`, `.docm`, doppia estensione, archivi)
+- Estrae IOC da header, corpo e hash allegati per arricchimento OSINT
 
-La classificazione è **euristica locale** (non ML). Il corpo MIME e gli allegati non sono analizzati in profondità in questa versione.
+La classificazione è **euristica locale** (non ML): non sostituisce sandbox o analisi forense completa, ma copre header, corpo e allegati presenti nell'input.
 
 ## Sicurezza input
 
