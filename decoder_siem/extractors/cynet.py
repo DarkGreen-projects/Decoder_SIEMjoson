@@ -11,6 +11,17 @@ from decoder_siem.extractors.patterns import (
 )
 from decoder_siem.models import Artifact, ArtifactType
 
+_EXTRA_INFO_FIELD_META: dict[str, tuple[str, str]] = {
+    "Created File Sha256": ("infected", "infected_file"),
+    "Infected file SHA256": ("infected", "infected_file"),
+    "Created File Path": ("infected", "infected_file"),
+    "Infected file": ("infected", "infected_file"),
+    "Sha256": ("process_extra", "parent_process"),
+    "Parent SHA256": ("parent", "parent_process"),
+    "Parent Path": ("parent", "parent_process"),
+    "Path": ("infected", "infected_file"),
+}
+
 
 class CynetExtractor:
     """Estrae artefatti dai campi noti del formato Cynet."""
@@ -21,6 +32,7 @@ class CynetExtractor:
     def extract(self, cynet_block: dict[str, Any]) -> list[Artifact]:
         artifacts: list[Artifact] = []
         base = "Cynet"
+        primary_group = f"{base}.primary_file"
 
         self._add_if_present(
             artifacts,
@@ -33,12 +45,16 @@ class CynetExtractor:
             ArtifactType.HASH_SHA256,
             cynet_block.get("Sha256Hex"),
             f"{base}.Sha256Hex",
+            correlation_group=primary_group,
+            entity_role="infected_file",
         )
         self._add_if_present(
             artifacts,
             ArtifactType.FILE_PATH,
             cynet_block.get("Path"),
             f"{base}.Path",
+            correlation_group=primary_group,
+            entity_role="infected_file",
         )
         self._add_if_present(
             artifacts,
@@ -57,12 +73,15 @@ class CynetExtractor:
             ArtifactType.DOMAIN,
             cynet_block.get("AlertDomain"),
             f"{base}.AlertDomain",
+            entity_role="network",
         )
         self._add_if_present(
             artifacts,
             ArtifactType.URL,
             cynet_block.get("AlertUrl"),
             f"{base}.AlertUrl",
+            correlation_group=primary_group,
+            entity_role="download_url",
         )
 
         desc = cynet_block.get("IncidentDescription")
@@ -165,38 +184,62 @@ class CynetExtractor:
 
     def _from_extra_info(self, extra: dict[str, Any], base_path: str) -> list[Artifact]:
         artifacts: list[Artifact] = []
-        mapping = [
-            ("Created File Sha256", ArtifactType.HASH_SHA256),
-            ("Sha256", ArtifactType.HASH_SHA256),
-            ("Infected file SHA256", ArtifactType.HASH_SHA256),
-            ("Parent SHA256", ArtifactType.HASH_SHA256),
-            ("Created File Path", ArtifactType.FILE_PATH),
-            ("Infected file", ArtifactType.FILE_PATH),
-            ("Path", ArtifactType.FILE_PATH),
-            ("Parent Path", ArtifactType.FILE_PATH),
-            ("Malware ID", ArtifactType.MALWARE_LABEL),
-            ("Malware Type", ArtifactType.MALWARE_LABEL),
-        ]
-        for field, art_type in mapping:
-            self._add_if_present(artifacts, art_type, extra.get(field), f"{base_path}.{field}")
+        for field, (group_suffix, role) in _EXTRA_INFO_FIELD_META.items():
+            art_type = ArtifactType.HASH_SHA256
+            if field in ("Created File Path", "Infected file", "Parent Path", "Path"):
+                art_type = ArtifactType.FILE_PATH
+            elif field in ("Malware ID", "Malware Type"):
+                art_type = ArtifactType.MALWARE_LABEL
+            if field in ("Malware ID", "Malware Type"):
+                self._add_if_present(
+                    artifacts,
+                    art_type,
+                    extra.get(field),
+                    f"{base_path}.{field}",
+                )
+                continue
+            self._add_if_present(
+                artifacts,
+                art_type,
+                extra.get(field),
+                f"{base_path}.{field}",
+                correlation_group=f"{base_path}.{group_suffix}",
+                entity_role=role,
+            )
+        for field in ("Malware ID", "Malware Type"):
+            self._add_if_present(
+                artifacts,
+                ArtifactType.MALWARE_LABEL,
+                extra.get(field),
+                f"{base_path}.{field}",
+            )
         artifacts.extend(self._generic.extract(extra, base_path))
         return artifacts
 
     def _from_process_section(
         self, section: dict[str, Any], base_path: str
     ) -> list[Artifact]:
+        if "Grandparent" in base_path:
+            role = "grandparent_process"
+        else:
+            role = "parent_process"
+
         artifacts: list[Artifact] = []
         self._add_if_present(
             artifacts,
             ArtifactType.HASH_SHA256,
             section.get("Process SHA256"),
             f"{base_path}.Process SHA256",
+            correlation_group=base_path,
+            entity_role=role,
         )
         self._add_if_present(
             artifacts,
             ArtifactType.FILE_PATH,
             section.get("Process Path"),
             f"{base_path}.Process Path",
+            correlation_group=base_path,
+            entity_role=role,
         )
         self._add_if_present(
             artifacts,
@@ -212,6 +255,9 @@ class CynetExtractor:
         artifact_type: ArtifactType,
         value: Any,
         provenance: str,
+        *,
+        correlation_group: str | None = None,
+        entity_role: str | None = None,
     ) -> None:
         if value is None:
             return
@@ -221,4 +267,16 @@ class CynetExtractor:
                 return
         if artifact_type == ArtifactType.IP and text == "0":
             return
-        artifacts.append(_make_artifact(artifact_type, text, provenance))
+        context: dict[str, Any] = {}
+        if correlation_group:
+            context["correlation_group"] = correlation_group
+        if entity_role:
+            context["entity_role"] = entity_role
+        artifacts.append(
+            _make_artifact(
+                artifact_type,
+                text,
+                provenance,
+                context=context or None,
+            )
+        )

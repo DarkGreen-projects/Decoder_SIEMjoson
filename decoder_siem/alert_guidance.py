@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from decoder_siem.correlation import (
+    build_correlated_entities,
+    entity_facts_from_report,
+    entity_role_label,
+)
 from decoder_siem.models import (
     ArtifactReport,
     ArtifactScope,
@@ -12,6 +17,16 @@ from decoder_siem.models import (
 from decoder_siem.table_export import classify_artifact
 
 COLOR_MALICIOUS = "#960018"
+
+
+@dataclass
+class EntityFacts:
+    role: str
+    role_label: str
+    display_name: str | None = None
+    path: str | None = None
+    hash_value: str | None = None
+    vt_verdict: str | None = None
 
 
 @dataclass
@@ -27,6 +42,7 @@ class ReportFacts:
     ad_groups: list[str] = field(default_factory=list)
     usernames: list[str] = field(default_factory=list)
     other_ids: list[str] = field(default_factory=list)
+    entities: list[EntityFacts] = field(default_factory=list)
 
 
 def _count_malicious(report: IncidentReport) -> int:
@@ -90,7 +106,108 @@ def extract_report_facts(report: IncidentReport) -> ReportFacts:
         elif art.type == ArtifactType.OTHER:
             facts.other_ids.append(art.value)
 
+    entities = build_correlated_entities(report.artifacts)
+    for item in entity_facts_from_report(report, entities):
+        facts.entities.append(
+            EntityFacts(
+                role=str(item.get("role") or "standalone"),
+                role_label=str(item.get("role_label") or ""),
+                display_name=item.get("display_name"),
+                path=item.get("path"),
+                hash_value=item.get("hash"),
+                vt_verdict=item.get("vt_verdict"),
+            )
+        )
+
     return facts
+
+
+def _entity_by_role(facts: ReportFacts, role: str) -> EntityFacts | None:
+    for entity in facts.entities:
+        if entity.role == role:
+            return entity
+    return None
+
+
+def _client_reporting_plan(
+    ctx: IncidentContext,
+    report: IncidentReport,
+    facts: ReportFacts,
+) -> list[str]:
+    malicious_count = _count_malicious(report)
+    infected = _entity_by_role(facts, "infected_file")
+    processes = [
+        e for e in facts.entities if e.role in ("parent_process", "grandparent_process", "process")
+    ]
+
+    lines: list[str] = []
+
+    host = ctx.host_name or "host N/D"
+    user = ctx.user_name or "utente N/D"
+    vendor = ctx.vendor or "sconosciuto"
+    lines.append(
+        f"**Sintesi evento:** alert **{vendor}** su **{host}** "
+        f"(utente/contesto: `{user}`)."
+    )
+
+    if infected and (infected.path or infected.hash_value):
+        vt = infected.vt_verdict or "non verificato"
+        name = infected.display_name or infected.path or "file"
+        lines.append(
+            f"**Evidenza primaria:** `{name}`"
+            + (f" — percorso `{infected.path}`" if infected.path else "")
+            + (f" — SHA `{infected.hash_value}`" if infected.hash_value else "")
+            + f" — esito VT: **{vt}**."
+        )
+    elif facts.malicious:
+        lines.append(
+            f"**Evidenza primaria:** IOC di rete/file con VT sospetto: "
+            f"{_fmt_list(facts.malicious, 3)}."
+        )
+    else:
+        lines.append(
+            "**Evidenza primaria:** nessun IOC VT malevolo; validare contesto operativo."
+        )
+
+    if processes:
+        proc_bits = []
+        for proc in processes[:3]:
+            label = proc.role_label or entity_role_label(proc.role)
+            bit = label
+            if proc.hash_value:
+                bit += f" `{proc.hash_value[:16]}…`"
+            if proc.path:
+                bit += f" ({proc.path})"
+            proc_bits.append(bit)
+        lines.append(f"**Catena di esecuzione:** {' → '.join(proc_bits)}.")
+
+    if malicious_count and (ctx.malware_id or infected):
+        lines.append(
+            "**Raccomandazione comunicazione:** incidente **confermato** — "
+            "segnalare al cliente con hash, percorso e azioni di containment già avviate."
+        )
+    elif malicious_count:
+        lines.append(
+            "**Raccomandazione comunicazione:** IOC sospetti su VT — "
+            "aprire ticket cliente con evidenze in tabella (elementi in rosso carmino)."
+        )
+    elif ctx.severity and ctx.severity >= 4:
+        lines.append(
+            "**Raccomandazione comunicazione:** severità alta ma VT non conclusivo — "
+            "completare investigazione interna prima di escalation al cliente."
+        )
+    elif facts.malicious or malicious_count:
+        lines.append(
+            "**Raccomandazione comunicazione:** valutare blocco IOC e aggiornamento cliente "
+            "se il contesto business conferma l'anomalia."
+        )
+    else:
+        lines.append(
+            "**Raccomandazione comunicazione:** probabile falso positivo o evento informativo — "
+            "documentare esito e comunicare al cliente solo se policy interna lo richiede."
+        )
+
+    return lines
 
 
 def _defender_guidance(
@@ -300,8 +417,20 @@ def _cynet_guidance(
     if facts.malicious:
         key_facts.append(f"VT malevolo: {_fmt_list(facts.malicious)}")
 
-    infected = facts.paths[0] if facts.paths else "file indicato nel JSON"
-    proc_hash = facts.hashes[1] if len(facts.hashes) > 1 else (facts.hashes[0] if facts.hashes else "N/D")
+    infected_entity = _entity_by_role(facts, "infected_file")
+    infected = (
+        infected_entity.path
+        or infected_entity.display_name
+        if infected_entity
+        else (facts.paths[0] if facts.paths else "file indicato nel JSON")
+    )
+    proc_entity = _entity_by_role(facts, "parent_process")
+    proc_hash = (
+        proc_entity.hash_value
+        if proc_entity and proc_entity.hash_value
+        else (facts.hashes[1] if len(facts.hashes) > 1 else (facts.hashes[0] if facts.hashes else "N/D"))
+    )
+    infected_hash = infected_entity.hash_value if infected_entity else (facts.hashes[0] if facts.hashes else "SHA-256")
 
     if "malicious" in name.lower() or "infected" in name.lower():
         desc = (
@@ -311,13 +440,13 @@ def _cynet_guidance(
             + f". Processo correlato (hash): `{proc_hash}`."
         )
         focus = [
-            f"Validare su VT lo SHA del file infetto (primo hash in elenco)",
+            f"File infetto: hash `{infected_hash}` (lookup VT sullo SHA, percorso non duplicato)",
             f"Controllare se `{infected}` è su share di rete — rischio propagazione",
             f"Parent process / utente `{ctx.user_name or 'N/D'}`: legittimo per quell'operazione?",
             "Verificare remediation Cynet (.cynet, quarantena) e stato su console",
         ]
         actions = [
-            f"Hunting su tutti gli endpoint per hash `{facts.hashes[0] if facts.hashes else 'SHA-256'}`",
+            f"Hunting su tutti gli endpoint per hash `{infected_hash}`",
             "Bloccare esecuzione da quella share se non necessaria",
             "Coinvolgere utente/proprietario file per origine del documento",
         ]
@@ -484,6 +613,13 @@ def alert_guidance_to_markdown(ctx: IncidentContext, report: IncidentReport) -> 
         lines.extend(["", "**Azioni suggerite (ordine consigliato)**", ""])
         for i, action in enumerate(actions, 1):
             lines.append(f"{i}. {action}")
+
+    facts = extract_report_facts(report)
+    client_plan = _client_reporting_plan(ctx, report, facts)
+    if client_plan:
+        lines.extend(["", "### Piano movimento / Segnalazione cliente", ""])
+        for item in client_plan:
+            lines.append(f"- {item}")
 
     malicious = _count_malicious(report)
     if malicious:

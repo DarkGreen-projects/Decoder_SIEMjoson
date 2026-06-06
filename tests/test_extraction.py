@@ -87,6 +87,23 @@ def test_extract_artifacts_from_file():
     assert len(artifacts) > 0
 
 
+def test_cynet_correlation_context_on_primary_file(cynet_block):
+    artifacts = CynetExtractor().extract(cynet_block)
+    primary_hash = next(
+        a
+        for a in artifacts
+        if a.type == ArtifactType.HASH_SHA256
+        and "Sha256Hex" in a.provenance[0]
+    )
+    primary_path = next(
+        a for a in artifacts if a.type == ArtifactType.FILE_PATH and "Cynet.Path" in a.provenance
+    )
+    assert primary_hash.context.get("correlation_group") == primary_path.context.get(
+        "correlation_group"
+    )
+    assert primary_hash.context.get("entity_role") == "infected_file"
+
+
 def test_deduplicate_provenance(cynet_block):
     artifacts = merge_artifacts(
         CynetExtractor().extract(cynet_block),

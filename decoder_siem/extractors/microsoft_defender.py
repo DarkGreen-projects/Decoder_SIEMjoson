@@ -55,12 +55,16 @@ class MicrosoftDefenderExtractor:
             artifacts.extend(self._generic.extract(desc, f"{base}.description"))
 
         evidence = alert.get("evidence")
+        last_file_group: str | None = None
         if isinstance(evidence, list):
             for idx, item in enumerate(evidence):
                 if isinstance(item, dict):
-                    artifacts.extend(
-                        self._from_evidence(item, f"{base}.evidence[{idx}]")
+                    item_artifacts, last_file_group = self._from_evidence(
+                        item,
+                        f"{base}.evidence[{idx}]",
+                        last_file_group=last_file_group,
                     )
+                    artifacts.extend(item_artifacts)
 
         self._add_if_present(
             artifacts,
@@ -123,9 +127,16 @@ class MicrosoftDefenderExtractor:
             },
         }
 
-    def _from_evidence(self, item: dict[str, Any], base_path: str) -> list[Artifact]:
+    def _from_evidence(
+        self,
+        item: dict[str, Any],
+        base_path: str,
+        *,
+        last_file_group: str | None = None,
+    ) -> tuple[list[Artifact], str | None]:
         artifacts: list[Artifact] = []
         odata = item.get("@odata.type", "")
+        updated_file_group = last_file_group
 
         if "ipEvidence" in odata:
             self._add_ip(
@@ -204,33 +215,55 @@ class MicrosoftDefenderExtractor:
             )
 
         elif "urlEvidence" in odata:
+            url_group = last_file_group or base_path
             self._add_if_present(
-                artifacts, ArtifactType.URL, item.get("url"), f"{base_path}.url"
+                artifacts,
+                ArtifactType.URL,
+                item.get("url"),
+                f"{base_path}.url",
+                correlation_group=url_group,
+                entity_role="download_url",
             )
 
         elif "fileEvidence" in odata:
+            updated_file_group = base_path
             self._add_if_present(
                 artifacts,
                 ArtifactType.HASH_SHA256,
                 item.get("sha256"),
                 f"{base_path}.sha256",
+                correlation_group=base_path,
+                entity_role="infected_file",
             )
             self._add_if_present(
                 artifacts,
                 ArtifactType.FILE_PATH,
                 item.get("filePath"),
                 f"{base_path}.filePath",
+                correlation_group=base_path,
+                entity_role="infected_file",
             )
 
         elif "processEvidence" in odata:
+            updated_file_group = last_file_group
             self._add_if_present(
                 artifacts,
                 ArtifactType.HASH_SHA256,
                 item.get("sha256"),
                 f"{base_path}.process.sha256",
+                correlation_group=base_path,
+                entity_role="process",
+            )
+            self._add_if_present(
+                artifacts,
+                ArtifactType.FILE_PATH,
+                item.get("filePath"),
+                f"{base_path}.process.filePath",
+                correlation_group=base_path,
+                entity_role="process",
             )
 
-        return artifacts
+        return artifacts, updated_file_group
 
     def _add_ip(
         self,
@@ -256,13 +289,23 @@ class MicrosoftDefenderExtractor:
         provenance: str,
         *,
         context: dict[str, Any] | None = None,
+        correlation_group: str | None = None,
+        entity_role: str | None = None,
     ) -> None:
         if value is None:
             return
         text = str(value).strip()
         if not text:
             return
-        art = _make_artifact(artifact_type, text, provenance)
-        if context:
-            art.context.update(context)
+        merged_context: dict[str, Any] = dict(context or {})
+        if correlation_group:
+            merged_context["correlation_group"] = correlation_group
+        if entity_role:
+            merged_context["entity_role"] = entity_role
+        art = _make_artifact(
+            artifact_type,
+            text,
+            provenance,
+            context=merged_context or None,
+        )
         artifacts.append(art)

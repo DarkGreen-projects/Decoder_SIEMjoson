@@ -157,10 +157,15 @@ def render_markdown(report: IncidentReport) -> str:
 
     enrichable = report.enrichable_artifacts
     enriched = [a for a in enrichable if a.enrichments]
+    correlation_skips = (report.context.extra or {}).get("correlation_skips", 0)
     lines.append("## Riepilogo arricchimento")
     lines.append("")
     lines.append(f"- Artefatti arricchibili (pubblici): {len(enrichable)}")
     lines.append(f"- Con risultato enricher: {len(enriched)}")
+    if correlation_skips:
+        lines.append(
+            f"- Lookup saltati per correlazione contestuale: {correlation_skips}"
+        )
     lines.append("")
 
     return "\n".join(lines)

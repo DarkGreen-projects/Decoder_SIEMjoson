@@ -3,6 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from decoder_siem.correlation import (
+    build_correlated_entities,
+    should_skip_enrichment,
+)
 from decoder_siem.enrichment_config import EnrichmentConfig
 from decoder_siem.known_benign import is_known_benign_artifact
 from decoder_siem.enrichers.abuseipdb import AbuseIPDBEnricher
@@ -243,6 +247,8 @@ def _apply_enrichment(
     enrichers = _build_enricher_chain(config, cache_dir)
     vt_in_chain = any(e.name == "virustotal" for e in enrichers)
     enrichable = _enrichable_for_report(report)
+    entities = build_correlated_entities(report.artifacts)
+    correlation_skips = 0
 
     closable: list[VirusTotalEnricher] = [
         e for e in enrichers if isinstance(e, VirusTotalEnricher)
@@ -259,6 +265,18 @@ def _apply_enrichment(
                 )
                 continue
 
+            correlation_reason = should_skip_enrichment(ar.artifact, entities)
+            if correlation_reason:
+                ar.enrichments.append(
+                    EnrichmentResult(
+                        enricher="correlation",
+                        status=EnrichmentStatus.SKIPPED,
+                        summary=correlation_reason,
+                    )
+                )
+                correlation_skips += 1
+                continue
+
             for enricher in enrichers:
                 if enricher.supports(ar.artifact):
                     ar.enrichments.append(enricher.enrich(ar.artifact))
@@ -270,6 +288,24 @@ def _apply_enrichment(
                         "VT_API_KEY non configurata",
                     )
                 )
+
+        for ar in report.artifacts:
+            if ar in enrichable:
+                continue
+            correlation_reason = should_skip_enrichment(ar.artifact, entities)
+            if correlation_reason and not any(
+                e.enricher == "correlation" for e in ar.enrichments
+            ):
+                ar.enrichments.append(
+                    EnrichmentResult(
+                        enricher="correlation",
+                        status=EnrichmentStatus.SKIPPED,
+                        summary=correlation_reason,
+                    )
+                )
+                correlation_skips += 1
+
+        report.context.extra["correlation_skips"] = correlation_skips
 
         for ar in report.internal_ips:
             if not vt_in_chain:

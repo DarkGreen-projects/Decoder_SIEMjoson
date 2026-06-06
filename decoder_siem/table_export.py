@@ -7,6 +7,7 @@ from decoder_siem.enrichers.abuseipdb import AbuseIPDBEnricher
 from decoder_siem.enrichers.otx import OTXEnricher
 from decoder_siem.enrichers.urlhaus import URLhausEnricher
 from decoder_siem.analyzers.email_scorer import CONFIDENCE_LABEL_IT, VERDICT_LABEL_IT
+from decoder_siem.correlation import entity_role_label
 from decoder_siem.known_benign import is_known_benign_artifact
 from decoder_siem.models import (
     Artifact,
@@ -209,10 +210,20 @@ def _format_enrichment_snippet(enr: EnrichmentResult) -> str | None:
     if enr.status == EnrichmentStatus.SKIPPED:
         if enr.enricher == "trusted":
             return enr.summary or "infrastruttura nota"
+        if enr.enricher == "correlation":
+            return enr.summary or "coperto da hash correlato"
         return enr.summary
     if enr.status == EnrichmentStatus.ERROR:
         return enr.summary or f"errore {enr.enricher}"
     return None
+
+
+def _entity_context_note(ar: ArtifactReport) -> str | None:
+    role = ar.artifact.context.get("entity_role")
+    if not role or role == "standalone":
+        return None
+    label = entity_role_label(str(role))
+    return label if label else None
 
 
 def _artifact_note(ar: ArtifactReport) -> str:
@@ -220,16 +231,25 @@ def _artifact_note(ar: ArtifactReport) -> str:
     if art.scope == ArtifactScope.INTERNAL:
         return "interno"
 
+    correlation = enrichment_by_name(ar, "correlation")
+    if correlation and correlation.status == EnrichmentStatus.SKIPPED:
+        base = correlation.summary or "coperto da hash correlato"
+        role_note = _entity_context_note(ar)
+        return f"{base} ({role_note})" if role_note else base
+
     if is_known_benign_artifact(art):
         trusted = enrichment_by_name(ar, "trusted")
         if trusted and trusted.status == EnrichmentStatus.SKIPPED:
             return "infrastruttura nota (link VT)"
         return "infrastruttura nota"
 
+    role_note = _entity_context_note(ar)
     if not ar.enrichments:
-        return "non verificato"
+        return role_note or "non verificato"
 
     parts: list[str] = []
+    if role_note:
+        parts.append(role_note)
     for name in ("virustotal", "abuseipdb", "otx", "urlhaus"):
         enr = enrichment_by_name(ar, name)
         if enr:
