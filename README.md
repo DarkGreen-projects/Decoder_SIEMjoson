@@ -1,6 +1,13 @@
-# Decoder SIEM JSON
+# Decoder SIEM
 
-Strumento CLI in Python per analizzare incidenti SIEM in formato **JSON** (es. **Cynet**) e log **CEF/syslog** (es. **FortiGate**): estrae IOC e metadati, con arricchimento opzionale tramite **VirusTotal**, **AbuseIPDB**, **AlienVault OTX** e **URLhaus** (abuse.ch).
+Strumento CLI e GUI in Python per analizzare incidenti SIEM e indicatori di compromissione (IOC):
+
+- **JSON** (Cynet, Microsoft Defender)
+- **CEF/syslog** (FortiGate)
+- **Header email** (phishing/spam)
+- **IOC diretti** — singolo IP, hash, URL o dominio, oppure più valori separati da spazio, virgola o `;`
+
+Estrae IOC e metadati, con arricchimento opzionale tramite **VirusTotal**, **AbuseIPDB**, **AlienVault OTX** e **URLhaus** (abuse.ch). Le risposte OSINT per hash, URL e domini sono memorizzate in **cache SQLite** (TTL 24 ore); gli IP vengono sempre interrogati live.
 
 ## Requisiti
 
@@ -52,7 +59,11 @@ python -m decoder_siem.gui
 Flusso:
 
 1. Configura nel file `.env` le chiavi OSINT che vuoi usare
-2. Incolla nel campo testo un JSON (Cynet, Microsoft Defender) o un log CEF FortiGate
+2. Incolla nel campo testo uno dei formati supportati:
+   - JSON (Cynet, Microsoft Defender)
+   - log CEF/syslog (FortiGate)
+   - header email («Mostra originale»)
+   - **IOC diretti** (es. `8.8.8.8`, un hash SHA256, oppure `8.8.8.8, abc...64 def...64`)
 3. Premi **Analizza** — vengono chiamate tutte le fonti per cui è presente la chiave
 4. A sinistra: **Riepilogo incidente**; a destra: **Elementi analizzati** con colori:
    - Verde (`#2e7d32`): elementi non potenzialmente malevoli
@@ -99,7 +110,9 @@ decoder-siem analyze ./alerts/ --recursive
 |---------|-------------|
 | `--no-enrich` | Salta tutte le API OSINT |
 | `--rpm 4` | Richieste/minuto VirusTotal (quota free tier) |
-| `--cache-dir ./.cache` | Cache locale risposte enricher |
+| `--cache-path ./cache.db` | Percorso database SQLite cache OSINT |
+| `--no-cache` | Disabilita cache (hash/URL/domini sempre live) |
+| `--cache-ttl-hours 24` | TTL cache in ore (default 24) |
 
 ## Formati supportati
 
@@ -110,6 +123,34 @@ decoder-siem analyze ./alerts/ --recursive
 | FortiGate syslog+CEF | `.cef`, `.log`, `.txt` | `FortiGate` |
 | CEF in wrapper JSON | `.json` (campo `message`, `raw`, `log`) | `FortiGate` |
 | Header email / messaggio RFC 5322 | incollati in GUI, `.eml`, `.txt` | `EmailHeaders` |
+| IOC diretti (IP, hash, URL, dominio) | incollati in GUI, `.txt` | `RawIOC` |
+
+### IOC diretti
+
+Puoi analizzare uno o più indicatori senza un alert completo. Incolla nel campo testo (GUI) o in un file `.txt`:
+
+```text
+8.8.8.8
+```
+
+```text
+aabbccdd...64caratterihex
+```
+
+```text
+8.8.8.8, dddd...40caratterihex, aabbcc...64caratterihex
+```
+
+```text
+hash1 hash2 hash3
+```
+
+Separatori ammessi: **spazio**, **virgola**, **punto e virgola**, **a capo**. Ogni IOC viene arricchito con le stesse fonti OSINT degli alert completi; hash, URL e domini usano la cache SQLite (24 h), gli IP no.
+
+```bash
+# File con IOC su una riga
+decoder-siem analyze ./iocs.txt -o ./out/iocs_report.json --markdown ./out/iocs_report.md
+```
 
 Gli eventi FortiGate di tipo **system** (es. shutdown) spesso non contengono IOC: il report include comunque hostname, device ID, severità e messaggio. I log **traffic/utm** espongono IP (`FTNTFGTsrcip`, `FTNTFGTdstip`), URL e domini.
 
@@ -164,12 +205,28 @@ Per ogni IOC pubblico (IP, hash, dominio, URL) la pipeline interroga, se configu
 
 Il verdetto in GUI e tabella è **aggregato**: basta una fonte che segnali minaccia per colorare l'IOC in rosso carmino.
 
+### Cache SQLite (TTL 24 ore)
+
+Hash, URL e domini già analizzati vengono riutilizzati dalla cache locale per ridurre chiamate API e tempi di risposta. Gli **IP non sono cachati** e restano sempre live. La cache è attiva di default; percorso configurabile con `ENRICHMENT_CACHE_PATH` o `--cache-dir`.
+
+### Correlazione contestuale
+
+Negli alert XDR (es. Microsoft Defender), path e URL correlati a un hash già presente nell'evento possono essere esclusi dall'arricchimento VT ridondante, velocizzando l'analisi senza perdere contesto.
+
+### Infrastrutture note
+
+Domini e host di provider legittimi noti (Google, Microsoft, CDN, ecc.) sono etichettati come benigni: link VT disponibili senza chiamate API automatiche superflue.
+
 ## Analisi header email
 
 Incolla gli header da «Mostra originale» (Outlook/Gmail) o un file `.eml`. Il tool:
 
-- Calcola **criticità** (0–100) e classifica: **phishing**, **spam** o **altro**
+- Calcola **criticità** (0–100) e classifica: **phishing**, **spam**, **safe** o **non classificabile**
 - Analizza SPF/DKIM/DMARC, allineamento From/Reply-To/Return-Path, catena `Received`
-- Estrae IP e domini dagli header per arricchimento OSINT
+- Estrae IP e domini dagli header per arricchimento OSINT (con limite intelligente per evitare centinaia di lookup)
 
 La classificazione è **euristica locale** (non ML). Il corpo MIME e gli allegati non sono analizzati in profondità in questa versione.
+
+## Sicurezza input
+
+Validazione dimensionale e sanitizzazione su input incollati e file caricati: limiti su caratteri, profondità JSON, numero massimo di IOC estratti e valori artefatto. Protegge da payload eccessivi, JSON annidati e contenuti non sicuri in output Markdown.
