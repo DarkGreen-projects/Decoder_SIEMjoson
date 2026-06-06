@@ -8,6 +8,7 @@ from decoder_siem.enrichers.otx import OTXEnricher
 from decoder_siem.enrichers.urlhaus import URLhausEnricher
 from decoder_siem.analyzers.email_scorer import CONFIDENCE_LABEL_IT, VERDICT_LABEL_IT
 from decoder_siem.correlation import entity_role_label
+from decoder_siem.input_guard import safe_md
 from decoder_siem.known_benign import is_known_benign_artifact
 from decoder_siem.models import (
     Artifact,
@@ -499,52 +500,52 @@ def report_to_rows(report: IncidentReport) -> list[list[str]]:
 def context_to_markdown(ctx: IncidentContext, *, artifact_count: int = 0) -> str:
     lines: list[str] = ["### Riepilogo incidente", ""]
     if ctx.vendor:
-        lines.append(f"- **Vendor:** {ctx.vendor}")
+        lines.append(f"- **Vendor:** {safe_md(ctx.vendor)}")
     if ctx.log_format:
-        lines.append(f"- **Formato:** {ctx.log_format}")
+        lines.append(f"- **Formato:** {safe_md(ctx.log_format)}")
     if ctx.incident_name:
-        lines.append(f"- **Titolo:** {ctx.incident_name}")
+        lines.append(f"- **Titolo:** {safe_md(ctx.incident_name)}")
     if ctx.event_name:
-        lines.append(f"- **Evento / Detector:** {ctx.event_name}")
+        lines.append(f"- **Evento / Detector:** {safe_md(ctx.event_name)}")
     if ctx.host_name:
-        lines.append(f"- **Host:** {ctx.host_name}")
+        lines.append(f"- **Host:** {safe_md(ctx.host_name)}")
     if ctx.host_ip:
-        lines.append(f"- **IP host:** {ctx.host_ip}")
+        lines.append(f"- **IP host:** {safe_md(ctx.host_ip)}")
     if ctx.user_name:
-        lines.append(f"- **Utente:** {ctx.user_name}")
+        lines.append(f"- **Utente:** {safe_md(ctx.user_name)}")
     if ctx.severity is not None:
         lines.append(f"- **Severità (numerica):** {ctx.severity}")
     if ctx.device_external_id:
-        lines.append(f"- **Device ID:** {ctx.device_external_id}")
+        lines.append(f"- **Device ID:** {safe_md(ctx.device_external_id)}")
     if ctx.malware_id:
-        lines.append(f"- **Malware ID:** {ctx.malware_id}")
+        lines.append(f"- **Malware ID:** {safe_md(ctx.malware_id)}")
     if ctx.mail_from:
-        lines.append(f"- **From:** {ctx.mail_from}")
+        lines.append(f"- **From:** {safe_md(ctx.mail_from)}")
     if ctx.reply_to:
-        lines.append(f"- **Reply-To:** {ctx.reply_to}")
+        lines.append(f"- **Reply-To:** {safe_md(ctx.reply_to)}")
     if ctx.subject:
-        lines.append(f"- **Subject:** {ctx.subject}")
+        lines.append(f"- **Subject:** {safe_md(ctx.subject)}")
 
     extra = ctx.extra or {}
     email_analysis = extra.get("email_analysis")
     if email_analysis:
         lines.append(
-            f"- **Verdetto email:** {email_analysis.get('verdict', 'N/D')} "
+            f"- **Verdetto email:** {safe_md(str(email_analysis.get('verdict', 'N/D')))} "
             f"(criticità {email_analysis.get('criticality', 0)}/100)"
         )
         auth = email_analysis.get("auth") or {}
         lines.append(
-            f"- **Auth:** SPF={auth.get('spf', 'N/D')}, "
-            f"DKIM={auth.get('dkim', 'N/D')}, DMARC={auth.get('dmarc', 'N/D')}"
+            f"- **Auth:** SPF={safe_md(str(auth.get('spf', 'N/D')))}, "
+            f"DKIM={safe_md(str(auth.get('dkim', 'N/D')))}, "
+            f"DMARC={safe_md(str(auth.get('dmarc', 'N/D')))}"
         )
     if extra.get("severity_text"):
-        lines.append(f"- **Severità:** {extra['severity_text']}")
+        lines.append(f"- **Severità:** {safe_md(str(extra['severity_text']))}")
     if extra.get("mitre_techniques"):
-        lines.append(
-            f"- **MITRE ATT&CK:** {', '.join(extra['mitre_techniques'])}"
-        )
+        techniques = ", ".join(safe_md(str(t)) for t in extra["mitre_techniques"])
+        lines.append(f"- **MITRE ATT&CK:** {techniques}")
     if extra.get("incident_id"):
-        lines.append(f"- **Incident ID:** {extra['incident_id']}")
+        lines.append(f"- **Incident ID:** {safe_md(str(extra['incident_id']))}")
 
     lines.append(f"- **Artefatti estratti:** {artifact_count}")
     if len(lines) <= 3:

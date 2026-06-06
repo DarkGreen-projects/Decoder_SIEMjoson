@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from decoder_siem import __version__
 from decoder_siem.enrichment_config import EnrichmentConfig
+from decoder_siem.input_guard import InputSecurityError, max_input_chars
 from decoder_siem.pipeline import build_report
 from decoder_siem.report import print_summary, write_json_report, write_markdown_report
 
@@ -112,6 +113,11 @@ def analyze(
         "--cache-path",
         help="Percorso database SQLite cache (default ~/.local/share/decoder_siem/)",
     ),
+    max_input_mb: Optional[int] = typer.Option(
+        None,
+        "--max-input-mb",
+        help=f"Limite input (MB); default {max_input_chars() // 1_000_000}",
+    ),
     cache_dir: Optional[Path] = typer.Option(
         None,
         "--cache-dir",
@@ -158,14 +164,22 @@ def analyze(
             err=True,
         )
 
+    if max_input_mb is not None:
+        os.environ["DECODER_MAX_INPUT_CHARS"] = str(max(1, max_input_mb) * 1_000_000)
+        os.environ["DECODER_MAX_FILE_BYTES"] = str(max(1, max_input_mb) * 1_000_000)
+
     paths = _collect_input_paths(input_path, recursive)
     for p in paths:
         out = output or _default_output(p)
-        report = build_report(
-            p,
-            enrich=not no_enrich,
-            config=config,
-        )
+        try:
+            report = build_report(
+                p,
+                enrich=not no_enrich,
+                config=config,
+            )
+        except InputSecurityError as exc:
+            typer.echo(f"Sicurezza input [{p.name}]: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
         write_json_report(report, out)
         typer.echo(f"Report JSON: {out}")
         md_path = markdown or out.with_suffix(".md")

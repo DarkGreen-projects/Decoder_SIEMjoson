@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
+
+from decoder_siem.input_guard import loads_json_bounded
 
 # Spazi Unicode frequenti in copia-incolla da Word, PDF, chat
 _UNICODE_SPACES = (
@@ -44,10 +45,10 @@ def unwrap_outer_json_string(content: str) -> str:
         content[0] == "'" and content[-1] == "'"
     ):
         try:
-            inner = json.loads(content)
+            inner = loads_json_bounded(content)
             if isinstance(inner, str):
                 return inner.strip()
-        except json.JSONDecodeError:
+        except (ValueError, Exception):  # noqa: BLE001
             pass
     return content
 
@@ -96,12 +97,18 @@ def parse_json_lenient(content: str) -> Any:
         add(blob)
         add(_fix_doubled_quotes(blob))
 
-    last_error: json.JSONDecodeError | None = None
+    last_error: Exception | None = None
     for candidate in candidates:
         for attempt in (candidate, _fix_doubled_quotes(candidate)):
             try:
-                return json.loads(attempt)
-            except json.JSONDecodeError as exc:
+                return loads_json_bounded(attempt)
+            except ValueError as exc:
+                last_error = exc
+            except Exception as exc:  # noqa: BLE001
+                from decoder_siem.input_guard import InputSecurityError
+
+                if isinstance(exc, InputSecurityError):
+                    raise
                 last_error = exc
 
     hint = (

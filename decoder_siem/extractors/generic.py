@@ -15,7 +15,11 @@ from decoder_siem.extractors.patterns import (
     normalize_hash,
     normalize_ip,
 )
+from decoder_siem.input_guard import max_artifacts, max_string_scan_len, validate_artifact_value
 from decoder_siem.models import Artifact, ArtifactScope, ArtifactType
+
+def _max_walk_nodes() -> int:
+    return max_artifacts() * 50
 
 HASH_FIELD_HINTS = ("sha256", "sha1", "md5", "hash")
 IP_FIELD_HINTS = ("ip", "hostip", "alertip")
@@ -37,6 +41,7 @@ def _make_artifact(
     scope: ArtifactScope | None = None,
     context: dict[str, Any] | None = None,
 ) -> Artifact:
+    value = validate_artifact_value(value)
     if artifact_type == ArtifactType.IP:
         norm = normalized or normalize_ip(value)
         art_scope = scope or _artifact_scope_for_ip(norm)
@@ -70,12 +75,21 @@ def _field_name_matches(name: str, hints: tuple[str, ...]) -> bool:
 
 
 class GenericExtractor:
+    def __init__(self) -> None:
+        self._nodes_visited = 0
+
     def extract(self, data: Any, base_path: str = "root") -> list[Artifact]:
         artifacts: list[Artifact] = []
+        self._nodes_visited = 0
         self._walk(data, base_path, artifacts)
         return artifacts
 
     def _walk(self, obj: Any, path: str, out: list[Artifact]) -> None:
+        self._nodes_visited += 1
+        if self._nodes_visited > _max_walk_nodes():
+            return
+        if len(out) >= max_artifacts():
+            return
         if isinstance(obj, dict):
             for key, value in obj.items():
                 child_path = f"{path}.{key}"
@@ -145,6 +159,8 @@ class GenericExtractor:
         return self._from_string(value, path)
 
     def _from_string(self, text: str, path: str) -> list[Artifact]:
+        if len(text) > max_string_scan_len():
+            return []
         found: list[Artifact] = []
         for match in SHA256_RE.finditer(text):
             found.append(

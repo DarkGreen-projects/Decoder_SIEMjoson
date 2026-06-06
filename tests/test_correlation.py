@@ -179,7 +179,11 @@ def test_pipeline_skips_correlated_url_enrichment():
 
 def test_cynet_pipeline_three_hashes_enriched():
     text = CYNET_FIXTURE.read_text(encoding="utf-8")
-    config = EnrichmentConfig(vt_api_key="fake-key", osint_requests_per_minute=1000)
+    config = EnrichmentConfig(
+        vt_api_key="fake-key",
+        osint_requests_per_minute=1000,
+        cache_enabled=False,
+    )
 
     vt_file_calls: list[str] = []
 

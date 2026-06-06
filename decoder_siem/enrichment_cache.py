@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from decoder_siem.input_guard import validate_artifact_value, validate_enricher_name
 from decoder_siem.models import (
     Artifact,
     ArtifactType,
@@ -96,6 +97,7 @@ class EnrichmentCacheStore:
             "CREATE INDEX IF NOT EXISTS idx_enrichment_cache_cached_at "
             "ON enrichment_cache (cached_at)"
         )
+        self._conn.execute("PRAGMA trusted_schema = OFF")
         self._conn.commit()
 
     def purge_expired(self) -> int:
@@ -112,6 +114,8 @@ class EnrichmentCacheStore:
     def get(self, enricher: str, artifact: Artifact) -> EnrichmentResult | None:
         if not self._enabled or self._conn is None or not is_cacheable(artifact.type):
             return None
+        validate_enricher_name(enricher)
+        validate_artifact_value(artifact.normalized_value)
 
         row = self._conn.execute(
             """
@@ -150,6 +154,8 @@ class EnrichmentCacheStore:
     def put(self, enricher: str, artifact: Artifact, result: EnrichmentResult) -> None:
         if not self._enabled or self._conn is None or not is_cacheable(artifact.type):
             return
+        validate_enricher_name(enricher)
+        validate_artifact_value(artifact.normalized_value)
         if result.status not in (
             EnrichmentStatus.SUCCESS,
             EnrichmentStatus.NOT_FOUND,

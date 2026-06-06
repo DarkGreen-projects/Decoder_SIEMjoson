@@ -14,6 +14,7 @@ from decoder_siem.models import (
     IncidentContext,
     IncidentReport,
 )
+from decoder_siem.input_guard import safe_md
 from decoder_siem.table_export import classify_artifact
 
 COLOR_MALICIOUS = "#960018"
@@ -59,7 +60,7 @@ def _fmt_list(items: list[str], limit: int = 5) -> str:
     if not unique:
         return "_non estratti_"
     shown = unique[:limit]
-    text = ", ".join(f"`{x}`" for x in shown)
+    text = ", ".join(f"`{safe_md(x)}`" for x in shown)
     if len(unique) > limit:
         text += f" (+{len(unique) - limit} altri)"
     return text

@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from decoder_siem.input_guard import (
+    InputSecurityError,
+    max_json_decode_passes,
+    read_bounded_text,
+    validate_text_input,
+)
 from decoder_siem.parser import get_vendor_block, parse_nested_json_strings
 from decoder_siem.parsers.cef import is_fortigate_cef, parse_cef_line
 from decoder_siem.parsers.email import (
@@ -36,7 +42,7 @@ class LoadedDocument:
 
 
 def _read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8").strip()
+    return read_bounded_text(path)
 
 
 def _extract_cef_from_json(obj: Any) -> str | None:
@@ -114,6 +120,8 @@ def _load_json_document(raw: Any) -> LoadedDocument:
 
 def load_text(text: str, *, source_hint: str | None = None) -> LoadedDocument:
     """Load and detect format from raw text (JSON, CEF/syslog, or wrapped CEF in JSON)."""
+    label = source_hint or "input"
+    validate_text_input(text, source=label)
     content = normalize_pasted_text(text)
     if not content:
         raise ValueError("Input vuoto: incolla JSON o un log CEF/syslog")
@@ -132,18 +140,23 @@ def load_text(text: str, *, source_hint: str | None = None) -> LoadedDocument:
         try:
             raw = parse_json_lenient(content)
             # Doppio encoding: stringa JSON che contiene altro JSON
+            passes = 0
             while isinstance(raw, str) and (
                 looks_like_json(raw) or "MicrosoftGraph" in raw or "Cynet" in raw
             ):
+                passes += 1
+                if passes > max_json_decode_passes():
+                    raise InputSecurityError(
+                        "Troppi livelli di encoding JSON annidati."
+                    )
                 raw = parse_json_lenient(raw)
             return _load_json_document(raw)
-        except ValueError:
-            if suffix == ".json":
-                raise
-            # Fall through to CEF
-        except json.JSONDecodeError as exc:
+        except InputSecurityError:
+            raise
+        except ValueError as exc:
             if suffix == ".json":
                 raise ValueError(f"JSON non valido: {exc}") from exc
+            # Fall through to CEF / email detection
 
     if looks_like_cef(content):
         return _parse_cef_text(content)

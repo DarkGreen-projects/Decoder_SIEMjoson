@@ -6,6 +6,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from decoder_siem.alert_guidance import alert_guidance_to_markdown
+from decoder_siem.input_guard import InputSecurityError
 from decoder_siem.enrichment_config import EnrichmentConfig
 from decoder_siem.pipeline import build_report_from_text
 from decoder_siem.table_export import (
@@ -99,14 +100,22 @@ def run_analysis(text: str) -> tuple[str, str, list[list[str]], str, str]:
             enrich=True,
             config=config,
         )
-    except ValueError as exc:
-        return EMPTY_MARKDOWN, EMPTY_HTML, [], str(exc), EMPTY_ALERT_GUIDANCE
-    except Exception as exc:  # noqa: BLE001
+    except InputSecurityError:
         return (
             EMPTY_MARKDOWN,
             EMPTY_HTML,
             [],
-            f"Errore durante l'analisi: {exc}",
+            "Input non valido o troppo grande. Verifica formato e dimensione.",
+            EMPTY_ALERT_GUIDANCE,
+        )
+    except ValueError as exc:
+        return EMPTY_MARKDOWN, EMPTY_HTML, [], str(exc), EMPTY_ALERT_GUIDANCE
+    except Exception:  # noqa: BLE001
+        return (
+            EMPTY_MARKDOWN,
+            EMPTY_HTML,
+            [],
+            "Errore durante l'analisi. Controlla il formato dell'input.",
             EMPTY_ALERT_GUIDANCE,
         )
 
@@ -141,6 +150,7 @@ def main() -> None:
                 label="Testo da analizzare",
                 placeholder='{"Cynet": {...}} | CEF:0|Fortinet|... | From: ...\\nReceived: ...',
                 lines=14,
+                max_lines=200,
                 scale=4,
             )
             analyze_btn = gr.Button("Analizza", variant="primary", scale=1)

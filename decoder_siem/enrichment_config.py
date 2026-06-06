@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from decoder_siem.enrichment_cache import default_cache_path
+from decoder_siem.input_guard import validate_cache_db_path
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -40,8 +41,12 @@ class EnrichmentConfig:
             abuseipdb_max_age_days=int(os.getenv("ABUSEIPDB_MAX_AGE_DAYS", "90")),
             cache_enabled=_env_bool("ENRICHMENT_CACHE_ENABLED", True),
             cache_ttl_hours=int(os.getenv("ENRICHMENT_CACHE_TTL_HOURS", "24")),
-            cache_path=Path(cache_path_raw) if cache_path_raw else default_cache_path(),
-        )
+        cache_path=(
+            validate_cache_db_path(Path(cache_path_raw))
+            if cache_path_raw
+            else validate_cache_db_path(default_cache_path())
+        ),
+    )
 
     def has_any_enricher(self) -> bool:
         return bool(

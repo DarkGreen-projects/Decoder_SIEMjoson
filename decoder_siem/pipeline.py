@@ -8,6 +8,7 @@ from decoder_siem.correlation import (
     should_skip_enrichment,
 )
 from decoder_siem.enrichment_cache import EnrichmentCacheStore
+from decoder_siem.input_guard import InputSecurityError, max_artifacts
 from decoder_siem.enrichment_config import EnrichmentConfig
 from decoder_siem.known_benign import is_known_benign_artifact
 from decoder_siem.enrichers.abuseipdb import AbuseIPDBEnricher
@@ -142,7 +143,16 @@ def _extract_from_document(
         ctx_data = email_ext.extract_context(doc.vendor_block)
         context = _context_from_email(ctx_data)
 
+    _ensure_artifact_limit(artifacts)
     return artifacts, context, doc.raw_event
+
+
+def _ensure_artifact_limit(artifacts: list) -> None:
+    if len(artifacts) > max_artifacts():
+        raise InputSecurityError(
+            f"Troppi IOC estratti (max {max_artifacts()}). "
+            "Riduci l'input o aumenta DECODER_MAX_ARTIFACTS."
+        )
 
 
 def extract_artifacts_from_text(text: str) -> tuple[list, IncidentContext, dict | None]:
