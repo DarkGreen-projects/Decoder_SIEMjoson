@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from decoder_siem.enrichers.base import Enricher
@@ -14,6 +13,9 @@ from decoder_siem.models import (
     EnrichmentStatus,
 )
 
+if TYPE_CHECKING:
+    from decoder_siem.enrichment_cache import EnrichmentCacheStore
+
 URLHAUS_API = "https://urlhaus-api.abuse.ch/v1"
 
 
@@ -25,13 +27,11 @@ class URLhausEnricher(Enricher):
         auth_key: str,
         *,
         requests_per_minute: int = 30,
-        cache_dir: Path | None = None,
+        cache_store: EnrichmentCacheStore | None = None,
     ) -> None:
         self._auth_key = auth_key
-        self._http = HttpClient(
-            requests_per_minute=requests_per_minute,
-            cache_dir=cache_dir,
-        )
+        self._http = HttpClient(requests_per_minute=requests_per_minute)
+        self._cache_store = cache_store
 
     def supports(self, artifact: Artifact) -> bool:
         if artifact.scope == ArtifactScope.INTERNAL:
@@ -46,46 +46,51 @@ class URLhausEnricher(Enricher):
         )
 
     def enrich(self, artifact: Artifact) -> EnrichmentResult:
+        if self._cache_store is not None:
+            cached = self._cache_store.get(self.name, artifact)
+            if cached is not None:
+                return cached
+
         headers = {"Auth-Key": self._auth_key}
         art_type = artifact.type
         val = artifact.normalized_value
 
         if art_type == ArtifactType.URL:
-            return self._query_url(val, headers)
-        if art_type == ArtifactType.DOMAIN:
-            return self._query_host(val, headers)
-        if art_type == ArtifactType.IP:
-            return self._query_host(val, headers)
-        if art_type in (
+            result = self._query_url(val, headers)
+        elif art_type == ArtifactType.DOMAIN:
+            result = self._query_host(val, headers)
+        elif art_type == ArtifactType.IP:
+            result = self._query_host(val, headers)
+        elif art_type in (
             ArtifactType.HASH_SHA256,
             ArtifactType.HASH_SHA1,
             ArtifactType.HASH_MD5,
         ):
-            return self._query_payload(art_type, val, headers)
+            result = self._query_payload(art_type, val, headers)
+        else:
+            return EnrichmentResult(
+                enricher=self.name,
+                status=EnrichmentStatus.SKIPPED,
+                summary="Tipo non supportato da URLhaus",
+            )
 
-        return EnrichmentResult(
-            enricher=self.name,
-            status=EnrichmentStatus.SKIPPED,
-            summary="Tipo non supportato da URLhaus",
-        )
+        if self._cache_store is not None:
+            self._cache_store.put(self.name, artifact, result)
+        return result
 
     def _query_url(self, url: str, headers: dict[str, str]) -> EnrichmentResult:
-        cache_key = f"urlhaus_url_{url}"
         status, data, err = self._http.post_form_json(
             f"{URLHAUS_API}/url/",
             {"url": url},
             headers=headers,
-            cache_key=cache_key,
         )
         return self._parse_response(status, data, err, default_host=urlparse(url).hostname)
 
     def _query_host(self, host: str, headers: dict[str, str]) -> EnrichmentResult:
-        cache_key = f"urlhaus_host_{host}"
         status, data, err = self._http.post_form_json(
             f"{URLHAUS_API}/host/",
             {"host": host},
             headers=headers,
-            cache_key=cache_key,
         )
         return self._parse_response(status, data, err, default_host=host)
 
@@ -100,12 +105,10 @@ class URLhausEnricher(Enricher):
             form = {"md5_hash": hash_val}
         else:
             form = {"sha256_hash": hash_val}
-        cache_key = f"urlhaus_hash_{hash_val}"
         status, data, err = self._http.post_form_json(
             f"{URLHAUS_API}/payload/",
             form,
             headers=headers,
-            cache_key=cache_key,
         )
         return self._parse_response(status, data, err)
 

@@ -99,8 +99,24 @@ def analyze(
     recursive: bool = typer.Option(
         False, "--recursive", "-r", help="Cerca file ricorsivamente nelle cartelle"
     ),
+    no_cache: bool = typer.Option(
+        False, "--no-cache", help="Disabilita cache SQLite OSINT (hash/link)"
+    ),
+    cache_ttl_hours: int = typer.Option(
+        int(os.getenv("ENRICHMENT_CACHE_TTL_HOURS", "24")),
+        "--cache-ttl-hours",
+        help="TTL cache hash/link in ore (default 24)",
+    ),
+    cache_path: Optional[Path] = typer.Option(
+        None,
+        "--cache-path",
+        help="Percorso database SQLite cache (default ~/.local/share/decoder_siem/)",
+    ),
     cache_dir: Optional[Path] = typer.Option(
-        None, "--cache-dir", help="Directory cache risposte VirusTotal"
+        None,
+        "--cache-dir",
+        help="[Deprecato] Usa --cache-path; ignorato",
+        hidden=True,
     ),
     requests_per_minute: int = typer.Option(
         int(os.getenv("VT_REQUESTS_PER_MINUTE", "4")),
@@ -109,17 +125,25 @@ def analyze(
     ),
 ) -> None:
     """Estrae IOC e arricchisce via fonti OSINT configurate in .env."""
-    config = EnrichmentConfig.from_env()
-    if requests_per_minute != config.vt_requests_per_minute:
-        config = EnrichmentConfig(
-            vt_api_key=config.vt_api_key,
-            abuseipdb_api_key=config.abuseipdb_api_key,
-            otx_api_key=config.otx_api_key,
-            urlhaus_auth_key=config.urlhaus_auth_key,
-            vt_requests_per_minute=requests_per_minute,
-            osint_requests_per_minute=config.osint_requests_per_minute,
-            abuseipdb_max_age_days=config.abuseipdb_max_age_days,
+    if cache_dir is not None:
+        typer.echo(
+            "Avviso: --cache-dir è deprecato; la cache SQLite è attiva di default "
+            "(usa --cache-path o ENRICHMENT_CACHE_PATH).",
+            err=True,
         )
+    config = EnrichmentConfig.from_env()
+    config = EnrichmentConfig(
+        vt_api_key=config.vt_api_key,
+        abuseipdb_api_key=config.abuseipdb_api_key,
+        otx_api_key=config.otx_api_key,
+        urlhaus_auth_key=config.urlhaus_auth_key,
+        vt_requests_per_minute=requests_per_minute,
+        osint_requests_per_minute=config.osint_requests_per_minute,
+        abuseipdb_max_age_days=config.abuseipdb_max_age_days,
+        cache_enabled=not no_cache,
+        cache_ttl_hours=cache_ttl_hours,
+        cache_path=cache_path or config.cache_path,
+    )
 
     if not no_enrich and not config.has_any_enricher():
         typer.echo(
@@ -141,7 +165,6 @@ def analyze(
             p,
             enrich=not no_enrich,
             config=config,
-            cache_dir=cache_dir,
         )
         write_json_report(report, out)
         typer.echo(f"Report JSON: {out}")

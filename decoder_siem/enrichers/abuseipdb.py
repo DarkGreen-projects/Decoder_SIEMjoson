@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
@@ -27,14 +26,10 @@ class AbuseIPDBEnricher(Enricher):
         *,
         max_age_in_days: int = 90,
         requests_per_minute: int = 30,
-        cache_dir: Path | None = None,
     ) -> None:
         self._api_key = api_key
         self._max_age = max(1, min(max_age_in_days, 365))
-        self._http = HttpClient(
-            requests_per_minute=requests_per_minute,
-            cache_dir=cache_dir,
-        )
+        self._http = HttpClient(requests_per_minute=requests_per_minute)
 
     def supports(self, artifact: Artifact) -> bool:
         return (
@@ -52,10 +47,7 @@ class AbuseIPDBEnricher(Enricher):
             "Accept": "application/json",
             "Key": self._api_key,
         }
-        cache_key = f"abuseipdb_ip_{ip}"
-        status, data, err = self._http.get_json(
-            url, headers=headers, cache_key=cache_key
-        )
+        status, data, err = self._http.get_json(url, headers=headers)
 
         if status == 0:
             return EnrichmentResult(

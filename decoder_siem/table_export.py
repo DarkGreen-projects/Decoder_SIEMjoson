@@ -179,26 +179,36 @@ def verdict_color(verdict: Verdict) -> str:
     return COLOR_MALICIOUS if verdict == "malicious" else COLOR_BENIGN
 
 
+def _cache_suffix(enr: EnrichmentResult) -> str:
+    if (enr.data or {}).get("_from_cache"):
+        return " [cache]"
+    if enr.summary and "da cache" in enr.summary.lower():
+        return " [cache]"
+    return ""
+
+
 def _format_enrichment_snippet(enr: EnrichmentResult) -> str | None:
     if enr.status == EnrichmentStatus.SUCCESS and enr.data:
         data = enr.data
+        suffix = _cache_suffix(enr)
         if enr.enricher == "virustotal":
             ratio = data.get("detection_ratio")
-            return f"VT {ratio}" if ratio else (enr.summary or "VT ok")
+            base = f"VT {ratio}" if ratio else (enr.summary or "VT ok")
+            return f"{base}{suffix}"
         if enr.enricher == "abuseipdb":
             score = data.get("abuse_confidence_score")
             return f"AbuseIPDB {score}%"
         if enr.enricher == "otx":
             pulses = data.get("pulse_count", 0)
-            return f"OTX {pulses} pulse"
+            return f"OTX {pulses} pulse{suffix}"
         if enr.enricher == "urlhaus":
             status = data.get("url_status")
             if status:
-                return f"URLhaus {status}"
+                return f"URLhaus {status}{suffix}"
             url_count = data.get("url_count")
             if url_count:
-                return f"URLhaus {url_count} URL"
-            return enr.summary or "URLhaus ok"
+                return f"URLhaus {url_count} URL{suffix}"
+            return (enr.summary or "URLhaus ok") + suffix
     if enr.status == EnrichmentStatus.NOT_FOUND:
         labels = {
             "virustotal": "assente su VT",
@@ -206,7 +216,8 @@ def _format_enrichment_snippet(enr: EnrichmentResult) -> str | None:
             "otx": "assente su OTX",
             "urlhaus": "assente su URLhaus",
         }
-        return labels.get(enr.enricher, enr.summary)
+        base = labels.get(enr.enricher, enr.summary)
+        return f"{base}{_cache_suffix(enr)}" if base else None
     if enr.status == EnrichmentStatus.SKIPPED:
         if enr.enricher == "trusted":
             return enr.summary or "infrastruttura nota"

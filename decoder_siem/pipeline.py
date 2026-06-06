@@ -7,6 +7,7 @@ from decoder_siem.correlation import (
     build_correlated_entities,
     should_skip_enrichment,
 )
+from decoder_siem.enrichment_cache import EnrichmentCacheStore
 from decoder_siem.enrichment_config import EnrichmentConfig
 from decoder_siem.known_benign import is_known_benign_artifact
 from decoder_siem.enrichers.abuseipdb import AbuseIPDBEnricher
@@ -154,9 +155,19 @@ def extract_artifacts_from_file(path: Path) -> tuple[list, IncidentContext, dict
     return _extract_from_document(doc)
 
 
+def _create_cache_store(config: EnrichmentConfig) -> EnrichmentCacheStore | None:
+    if not config.cache_enabled:
+        return None
+    return EnrichmentCacheStore(
+        config.cache_path,
+        ttl_hours=config.cache_ttl_hours,
+        enabled=True,
+    )
+
+
 def _build_enricher_chain(
     config: EnrichmentConfig,
-    cache_dir: Path | None,
+    cache_store: EnrichmentCacheStore | None,
 ) -> list[Enricher]:
     rpm = config.osint_requests_per_minute
     chain: list[Enricher] = []
@@ -166,7 +177,7 @@ def _build_enricher_chain(
             URLhausEnricher(
                 config.urlhaus_auth_key,
                 requests_per_minute=rpm,
-                cache_dir=cache_dir,
+                cache_store=cache_store,
             )
         )
     if config.abuseipdb_api_key:
@@ -175,7 +186,6 @@ def _build_enricher_chain(
                 config.abuseipdb_api_key,
                 max_age_in_days=config.abuseipdb_max_age_days,
                 requests_per_minute=rpm,
-                cache_dir=cache_dir,
             )
         )
     if config.otx_api_key:
@@ -183,7 +193,7 @@ def _build_enricher_chain(
             OTXEnricher(
                 config.otx_api_key,
                 requests_per_minute=rpm,
-                cache_dir=cache_dir,
+                cache_store=cache_store,
             )
         )
     if config.vt_api_key:
@@ -191,10 +201,41 @@ def _build_enricher_chain(
             VirusTotalEnricher(
                 config.vt_api_key,
                 requests_per_minute=config.vt_requests_per_minute,
-                cache_dir=cache_dir,
+                cache_store=cache_store,
             )
         )
     return chain
+
+
+def _config_with_overrides(
+    config: EnrichmentConfig,
+    *,
+    vt_api_key: str | None = None,
+    vt_requests_per_minute: int | None = None,
+    cache_enabled: bool | None = None,
+    cache_ttl_hours: int | None = None,
+    cache_path: Path | None = None,
+) -> EnrichmentConfig:
+    return EnrichmentConfig(
+        vt_api_key=vt_api_key if vt_api_key is not None else config.vt_api_key,
+        abuseipdb_api_key=config.abuseipdb_api_key,
+        otx_api_key=config.otx_api_key,
+        urlhaus_auth_key=config.urlhaus_auth_key,
+        vt_requests_per_minute=(
+            vt_requests_per_minute
+            if vt_requests_per_minute is not None
+            else config.vt_requests_per_minute
+        ),
+        osint_requests_per_minute=config.osint_requests_per_minute,
+        abuseipdb_max_age_days=config.abuseipdb_max_age_days,
+        cache_enabled=(
+            cache_enabled if cache_enabled is not None else config.cache_enabled
+        ),
+        cache_ttl_hours=(
+            cache_ttl_hours if cache_ttl_hours is not None else config.cache_ttl_hours
+        ),
+        cache_path=cache_path if cache_path is not None else config.cache_path,
+    )
 
 
 def _skipped_result(enricher: str, summary: str) -> EnrichmentResult:
@@ -212,39 +253,44 @@ def _apply_enrichment(
     config: EnrichmentConfig | None = None,
     api_key: str | None = None,
     requests_per_minute: int | None = None,
-    cache_dir: Path | None = None,
+    cache_enabled: bool | None = None,
+    cache_ttl_hours: int | None = None,
+    cache_path: Path | None = None,
 ) -> IncidentReport:
     if not enrich:
         return report
 
     if config is None:
         config = EnrichmentConfig.from_env()
-        if api_key is not None:
-            config = EnrichmentConfig(
-                vt_api_key=api_key,
-                abuseipdb_api_key=config.abuseipdb_api_key,
-                otx_api_key=config.otx_api_key,
-                urlhaus_auth_key=config.urlhaus_auth_key,
-                vt_requests_per_minute=(
-                    requests_per_minute
-                    if requests_per_minute is not None
-                    else config.vt_requests_per_minute
-                ),
-                osint_requests_per_minute=config.osint_requests_per_minute,
-                abuseipdb_max_age_days=config.abuseipdb_max_age_days,
-            )
-        elif requests_per_minute is not None:
-            config = EnrichmentConfig(
-                vt_api_key=config.vt_api_key,
-                abuseipdb_api_key=config.abuseipdb_api_key,
-                otx_api_key=config.otx_api_key,
-                urlhaus_auth_key=config.urlhaus_auth_key,
-                vt_requests_per_minute=requests_per_minute,
-                osint_requests_per_minute=config.osint_requests_per_minute,
-                abuseipdb_max_age_days=config.abuseipdb_max_age_days,
-            )
+    if api_key is not None:
+        config = _config_with_overrides(
+            config,
+            vt_api_key=api_key,
+            vt_requests_per_minute=requests_per_minute,
+            cache_enabled=cache_enabled,
+            cache_ttl_hours=cache_ttl_hours,
+            cache_path=cache_path,
+        )
+    elif (
+        requests_per_minute is not None
+        or cache_enabled is not None
+        or cache_ttl_hours is not None
+        or cache_path is not None
+    ):
+        config = _config_with_overrides(
+            config,
+            vt_requests_per_minute=requests_per_minute,
+            cache_enabled=cache_enabled,
+            cache_ttl_hours=cache_ttl_hours,
+            cache_path=cache_path,
+        )
 
-    enrichers = _build_enricher_chain(config, cache_dir)
+    cache_store = _create_cache_store(config)
+    cache_purged = 0
+    if cache_store is not None:
+        cache_purged = cache_store.purge_expired()
+
+    enrichers = _build_enricher_chain(config, cache_store)
     vt_in_chain = any(e.name == "virustotal" for e in enrichers)
     enrichable = _enrichable_for_report(report)
     entities = build_correlated_entities(report.artifacts)
@@ -306,6 +352,8 @@ def _apply_enrichment(
                 correlation_skips += 1
 
         report.context.extra["correlation_skips"] = correlation_skips
+        report.context.extra["cache_hits"] = cache_store.hits if cache_store else 0
+        report.context.extra["cache_purged"] = cache_purged
 
         for ar in report.internal_ips:
             if not vt_in_chain:
@@ -318,6 +366,8 @@ def _apply_enrichment(
     finally:
         for enricher in closable:
             enricher.close()
+        if cache_store is not None:
+            cache_store.close()
 
     return report
 
@@ -369,7 +419,9 @@ def build_report_from_text(
     config: EnrichmentConfig | None = None,
     api_key: str | None = None,
     requests_per_minute: int = 4,
-    cache_dir: Path | None = None,
+    cache_enabled: bool | None = None,
+    cache_ttl_hours: int | None = None,
+    cache_path: Path | None = None,
 ) -> IncidentReport:
     artifacts, context, raw_event = extract_artifacts_from_text(text)
     artifact_reports = [ArtifactReport(artifact=a) for a in artifacts]
@@ -386,7 +438,9 @@ def build_report_from_text(
         config=config,
         api_key=api_key,
         requests_per_minute=requests_per_minute,
-        cache_dir=cache_dir,
+        cache_enabled=cache_enabled,
+        cache_ttl_hours=cache_ttl_hours,
+        cache_path=cache_path,
     )
 
 
@@ -397,7 +451,9 @@ def build_report(
     config: EnrichmentConfig | None = None,
     api_key: str | None = None,
     requests_per_minute: int = 4,
-    cache_dir: Path | None = None,
+    cache_enabled: bool | None = None,
+    cache_ttl_hours: int | None = None,
+    cache_path: Path | None = None,
 ) -> IncidentReport:
     artifacts, context, raw_event = extract_artifacts_from_file(path)
     artifact_reports = [ArtifactReport(artifact=a) for a in artifacts]
@@ -414,5 +470,7 @@ def build_report(
         config=config,
         api_key=api_key,
         requests_per_minute=requests_per_minute,
-        cache_dir=cache_dir,
+        cache_enabled=cache_enabled,
+        cache_ttl_hours=cache_ttl_hours,
+        cache_path=cache_path,
     )

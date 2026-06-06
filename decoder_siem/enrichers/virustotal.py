@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 import time
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import vt
 
@@ -16,6 +14,9 @@ from decoder_siem.models import (
     EnrichmentStatus,
 )
 
+if TYPE_CHECKING:
+    from decoder_siem.enrichment_cache import EnrichmentCacheStore
+
 
 class VirusTotalEnricher(Enricher):
     name = "virustotal"
@@ -25,14 +26,12 @@ class VirusTotalEnricher(Enricher):
         api_key: str,
         *,
         requests_per_minute: int = 4,
-        cache_dir: Path | None = None,
+        cache_store: EnrichmentCacheStore | None = None,
     ) -> None:
         self._client = vt.Client(api_key)
         self._min_interval = 60.0 / max(requests_per_minute, 1)
         self._last_request = 0.0
-        self._cache_dir = cache_dir
-        if cache_dir:
-            cache_dir.mkdir(parents=True, exist_ok=True)
+        self._cache_store = cache_store
 
     def close(self) -> None:
         self._client.close()
@@ -57,10 +56,10 @@ class VirusTotalEnricher(Enricher):
                 summary="IP interno: lookup VirusTotal non applicabile",
             )
 
-        cache_key = f"{artifact.type.value}_{artifact.normalized_value}"
-        cached = self._read_cache(cache_key)
-        if cached is not None:
-            return EnrichmentResult.model_validate(cached)
+        if self._cache_store is not None:
+            cached = self._cache_store.get(self.name, artifact)
+            if cached is not None:
+                return cached
 
         try:
             data = self._lookup(artifact)
@@ -70,29 +69,39 @@ class VirusTotalEnricher(Enricher):
                 summary=self._build_summary(data),
                 data=data,
             )
-            self._write_cache(cache_key, result.model_dump())
+            if self._cache_store is not None:
+                self._cache_store.put(self.name, artifact, result)
             return result
         except vt.APIError as exc:
             if getattr(exc, "code", "") == "NotFoundError":
-                return EnrichmentResult(
+                result = EnrichmentResult(
                     enricher=self.name,
                     status=EnrichmentStatus.NOT_FOUND,
                     summary="IOC non presente in VirusTotal",
                     error=str(exc),
                 )
-            return EnrichmentResult(
+                if self._cache_store is not None:
+                    self._cache_store.put(self.name, artifact, result)
+                return result
+            result = EnrichmentResult(
                 enricher=self.name,
                 status=EnrichmentStatus.ERROR,
                 summary="Errore API VirusTotal",
                 error=str(exc),
             )
+            if self._cache_store is not None:
+                self._cache_store.put(self.name, artifact, result)
+            return result
         except Exception as exc:  # noqa: BLE001
-            return EnrichmentResult(
+            result = EnrichmentResult(
                 enricher=self.name,
                 status=EnrichmentStatus.ERROR,
                 summary="Errore durante l'arricchimento",
                 error=str(exc),
             )
+            if self._cache_store is not None:
+                self._cache_store.put(self.name, artifact, result)
+            return result
 
     def _lookup(self, artifact: Artifact) -> dict[str, Any]:
         self._throttle()
@@ -197,17 +206,3 @@ class VirusTotalEnricher(Enricher):
             country = data.get("country") or "?"
             return f"IP {data.get('permalink', '')}: {ratio}, paese {country}"
         return f"{kind}: rilevazioni {ratio}"
-
-    def _read_cache(self, key: str) -> dict[str, Any] | None:
-        if not self._cache_dir:
-            return None
-        path = self._cache_dir / f"{key}.json"
-        if not path.exists():
-            return None
-        return json.loads(path.read_text(encoding="utf-8"))
-
-    def _write_cache(self, key: str, data: dict[str, Any]) -> None:
-        if not self._cache_dir:
-            return
-        path = self._cache_dir / f"{key}.json"
-        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
