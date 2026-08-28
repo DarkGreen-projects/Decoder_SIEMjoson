@@ -85,26 +85,26 @@ Apri **PowerShell** e scegli una cartella di lavoro, ad esempio il Desktop:
 
 ```powershell
 cd $env:USERPROFILE\Desktop
-git clone https://github.com/DarkGreen-projects/Decoder_SIEMjoson.git
-cd Decoder_SIEMjoson
+git clone https://github.com/DarkGreen-projects/Decoder_SIEMjson.git
+cd Decoder_SIEMjson
 ```
 
 Se non hai Git, puoi scaricare lo ZIP da GitHub:
 
-1. Vai su https://github.com/DarkGreen-projects/Decoder_SIEMjoson
+1. Vai su https://github.com/DarkGreen-projects/Decoder_SIEMjson
 2. Clicca **Code** → **Download ZIP**
-3. Estrai lo ZIP in `C:\Users\<TuoNome>\Desktop\Decoder_SIEMjoson`
+3. Estrai lo ZIP in `C:\Users\<TuoNome>\Desktop\Decoder_SIEMjson`
 4. Apri PowerShell in quella cartella:
 
 ```powershell
-cd $env:USERPROFILE\Desktop\Decoder_SIEMjoson
+cd $env:USERPROFILE\Desktop\Decoder_SIEMjson
 ```
 
 ---
 
 ## Passo 4 — Ambiente virtuale e installazione
 
-Resta nella cartella del progetto (`Decoder_SIEMjoson`).
+Resta nella cartella del progetto (`Decoder_SIEMjson`).
 
 ### 4.1 Creare il virtual environment
 
@@ -240,7 +240,7 @@ decoder-siem extract-only .\tests\fixtures\fortigate_shutdown.cef -o .\out\repor
 Ogni volta che riapri il PC e vuoi usare Decoder SIEM:
 
 ```powershell
-cd $env:USERPROFILE\Desktop\Decoder_SIEMjoson
+cd $env:USERPROFILE\Desktop\Decoder_SIEMjson
 .venv\Scripts\Activate.ps1
 decoder-siem-gui
 ```
@@ -249,7 +249,7 @@ Puoi creare un file `avvia-gui.bat` sul Desktop con:
 
 ```bat
 @echo off
-cd /d "%USERPROFILE%\Desktop\Decoder_SIEMjoson"
+cd /d "%USERPROFILE%\Desktop\Decoder_SIEMjson"
 call .venv\Scripts\activate.bat
 decoder-siem-gui
 pause

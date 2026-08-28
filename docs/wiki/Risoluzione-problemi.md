@@ -86,5 +86,5 @@ Errore `Troppi IOC estratti`: aumenta `DECODER_MAX_ARTIFACTS` o riduci l'input.
 
 ## Supporto
 
-- Repository: https://github.com/DarkGreen-projects/Decoder_SIEMjoson
+- Repository: https://github.com/DarkGreen-projects/Decoder_SIEMjson
 - Apri una **Issue** su GitHub per bug o richieste

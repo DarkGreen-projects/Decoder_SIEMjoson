@@ -23,8 +23,8 @@ Estrae IOC e metadati, con arricchimento opzionale tramite **VirusTotal**, **Abu
 ### Linux / macOS
 
 ```bash
-git clone https://github.com/DarkGreen-projects/Decoder_SIEMjoson.git
-cd Decoder_SIEMjoson
+git clone https://github.com/DarkGreen-projects/Decoder_SIEMjson.git
+cd Decoder_SIEMjson
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[gui]"
@@ -33,8 +33,8 @@ pip install -e ".[gui]"
 ### Windows (PowerShell)
 
 ```powershell
-git clone https://github.com/DarkGreen-projects/Decoder_SIEMjoson.git
-cd Decoder_SIEMjoson
+git clone https://github.com/DarkGreen-projects/Decoder_SIEMjson.git
+cd Decoder_SIEMjson
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -e ".[gui]"

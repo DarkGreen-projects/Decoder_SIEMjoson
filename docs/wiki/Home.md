@@ -22,8 +22,8 @@ Decoder SIEM è uno strumento Python per analisti SOC che estrae indicatori di c
 ## Avvio rapido (se hai già Python)
 
 ```powershell
-git clone https://github.com/DarkGreen-projects/Decoder_SIEMjoson.git
-cd Decoder_SIEMjoson
+git clone https://github.com/DarkGreen-projects/Decoder_SIEMjson.git
+cd Decoder_SIEMjson
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -e ".[gui]"
@@ -42,4 +42,4 @@ Apri il browser su **http://127.0.0.1:7860**.
 
 ## Repository
 
-https://github.com/DarkGreen-projects/Decoder_SIEMjoson
+https://github.com/DarkGreen-projects/Decoder_SIEMjson

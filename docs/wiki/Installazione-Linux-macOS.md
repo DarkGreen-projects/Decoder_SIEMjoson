@@ -29,8 +29,8 @@ brew install python@3.12 git
 ## Installazione
 
 ```bash
-git clone https://github.com/DarkGreen-projects/Decoder_SIEMjoson.git
-cd Decoder_SIEMjoson
+git clone https://github.com/DarkGreen-projects/Decoder_SIEMjson.git
+cd Decoder_SIEMjson
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
